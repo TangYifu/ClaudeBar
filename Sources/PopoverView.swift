@@ -188,14 +188,30 @@ public struct PopoverView: View {
                     .foregroundColor(.primary)
             }
             
-            // Sub-metrics row
-            HStack(spacing: 16) {
-                metricItem(label: "生成输出", value: viewModel.usage.todayStats.outputFormatted)
-                metricItem(label: "交互消息", value: "\(viewModel.usage.todayStats.messageCount)条")
-                metricItem(label: "缓存命中", value: "\(viewModel.usage.todayStats.cacheEfficiencyPercent)%")
-                Spacer()
+            // Sub-metrics rows
+            VStack(spacing: 6) {
+                HStack(spacing: 0) {
+                    metricItem(label: "生成输出", value: viewModel.usage.todayStats.outputFormatted)
+                    Spacer()
+                    metricItem(label: "首次载入缓存", value: viewModel.usage.todayStats.cacheCreationFormatted)
+                    Spacer()
+                    metricItem(label: "缓存命中读取", value: viewModel.usage.todayStats.cacheReadFormatted)
+                }
+                
+                HStack(spacing: 0) {
+                    metricItem(label: "缓存命中率", value: "\(viewModel.usage.todayStats.cacheEfficiencyPercent)%")
+                    Spacer()
+                    metricItem(label: "交互消息数", value: "\(viewModel.usage.todayStats.messageCount)条")
+                    Spacer()
+                    // Align spacer with 3rd column
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("").font(.system(size: 9))
+                        Text("").font(.system(size: 11))
+                    }
+                    .frame(minWidth: 60)
+                }
             }
-            .padding(.top, 1)
+            .padding(.top, 2)
             
             // Model breakdown tags
             if !viewModel.usage.todayStats.topModelsSummary.isEmpty {

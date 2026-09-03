@@ -80,6 +80,14 @@ public struct TodayTokenStats {
         formatTokenNumber(outputTokens)
     }
     
+    public var cacheCreationFormatted: String {
+        formatTokenNumber(cacheCreationTokens)
+    }
+    
+    public var cacheReadFormatted: String {
+        formatTokenNumber(cacheReadTokens)
+    }
+    
     public var cacheEfficiencyPercent: Int {
         let totalInput = inputTokens + cacheCreationTokens + cacheReadTokens
         guard totalInput > 0 else { return 0 }

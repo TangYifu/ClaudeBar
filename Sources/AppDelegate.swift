@@ -45,7 +45,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func setupPopover() {
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 460)
+        popover.contentSize = NSSize(width: 320, height: 480)
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = NSHostingController(rootView: PopoverView(viewModel: viewModel))
