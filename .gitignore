@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Build artifacts
+build/
+*.app
+*.dSYM
+
+# Temporary files
+*.swp
+*~
+*.log
+
+# IDE
+.idea/
+.vscode/
