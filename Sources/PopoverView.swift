@@ -184,8 +184,8 @@ public struct PopoverView: View {
                 Spacer()
                 
                 Text(viewModel.usage.todayStats.totalFormatted)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
+                    .font(.system(size: 13, weight: viewModel.usage.todayStats.totalTokens > 0 ? .bold : .medium, design: .rounded))
+                    .foregroundColor(viewModel.usage.todayStats.totalTokens > 0 ? .primary : .secondary)
             }
             
             // Sub-metrics rows

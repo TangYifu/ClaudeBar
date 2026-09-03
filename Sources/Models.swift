@@ -76,11 +76,13 @@ public struct TodayTokenStats {
     }
     
     public var totalFormatted: String {
-        formatTokenNumber(totalTokens)
+        guard totalTokens > 0 else { return "暂无" }
+        return formatTokenNumber(totalTokens)
     }
     
     public var outputFormatted: String {
-        formatTokenNumber(outputTokens)
+        guard outputTokens > 0 else { return totalTokens == 0 ? "暂无" : "0" }
+        return formatTokenNumber(outputTokens)
     }
     
     public var userInputTokens: Int {
@@ -88,15 +90,18 @@ public struct TodayTokenStats {
     }
     
     public var userInputFormatted: String {
-        formatTokenNumber(userInputTokens)
+        guard userInputTokens > 0 else { return totalTokens == 0 ? "暂无" : "0" }
+        return formatTokenNumber(userInputTokens)
     }
     
     public var cacheCreationFormatted: String {
-        formatTokenNumber(cacheCreationTokens)
+        guard cacheCreationTokens > 0 else { return totalTokens == 0 ? "暂无" : "0" }
+        return formatTokenNumber(cacheCreationTokens)
     }
     
     public var cacheReadFormatted: String {
-        formatTokenNumber(cacheReadTokens)
+        guard cacheReadTokens > 0 else { return totalTokens == 0 ? "暂无" : "0" }
+        return formatTokenNumber(cacheReadTokens)
     }
     
     public var cacheEfficiencyPercent: Int {
