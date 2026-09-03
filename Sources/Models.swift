@@ -80,6 +80,14 @@ public struct TodayTokenStats {
         formatTokenNumber(outputTokens)
     }
     
+    public var userInputTokens: Int {
+        inputTokens + cacheCreationTokens
+    }
+    
+    public var userInputFormatted: String {
+        formatTokenNumber(userInputTokens)
+    }
+    
     public var cacheCreationFormatted: String {
         formatTokenNumber(cacheCreationTokens)
     }

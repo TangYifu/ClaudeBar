@@ -193,7 +193,7 @@ public struct PopoverView: View {
                 HStack(spacing: 0) {
                     metricItem(label: "生成输出", value: viewModel.usage.todayStats.outputFormatted)
                     Spacer()
-                    metricItem(label: "首次载入缓存", value: viewModel.usage.todayStats.cacheCreationFormatted)
+                    metricItem(label: "用户输入", value: viewModel.usage.todayStats.userInputFormatted)
                     Spacer()
                     metricItem(label: "缓存命中读取", value: viewModel.usage.todayStats.cacheReadFormatted)
                 }
