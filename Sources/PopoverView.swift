@@ -394,6 +394,10 @@ public struct PopoverView: View {
             Menu {
                 Toggle("菜单栏显示百分比", isOn: $settings.showPercentage)
                 Toggle("配额达到 80% 时发送通知", isOn: $settings.enableQuotaNotification)
+
+                if NotchIslandController.isSupported {
+                    Toggle("在刘海显示配额", isOn: $settings.showNotchIsland)
+                }
                 
                 if #available(macOS 13.0, *) {
                     Toggle("开机自动启动", isOn: $settings.launchAtLogin)

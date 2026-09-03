@@ -20,6 +20,7 @@ SOURCES=(
     "$PROJECT_DIR/Sources/ClaudeUsageService.swift"
     "$PROJECT_DIR/Sources/SettingsManager.swift"
     "$PROJECT_DIR/Sources/PopoverView.swift"
+    "$PROJECT_DIR/Sources/NotchIsland.swift"
     "$PROJECT_DIR/Sources/AppDelegate.swift"
     "$PROJECT_DIR/Sources/main.swift"
 )

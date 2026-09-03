@@ -9,11 +9,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     
     private let viewModel = PopoverViewModel()
     private let settings = SettingsManager.shared
+    private lazy var notchIsland = NotchIslandController(viewModel: viewModel)
     
     public func applicationDidFinishLaunching(_ notification: Notification) {
         ProcessInfo.processInfo.disableAutomaticTermination("ClaudeBar background monitoring")
         setupStatusItem()
         setupNotifications()
+        syncNotchIsland()
         startTimer()
         
         // Initial fetch
@@ -247,6 +249,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func handleSettingsChanged() {
         startTimer()
         updateButtonTitle()
+        syncNotchIsland()
+    }
+
+    private func syncNotchIsland() {
+        if settings.showNotchIsland {
+            notchIsland.show()
+        } else if notchIsland.isVisible {
+            notchIsland.hide()
+        }
     }
     
     private func updateButtonTitle() {
