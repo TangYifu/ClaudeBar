@@ -3,7 +3,7 @@ import SwiftUI
 
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private var popover: NSPopover!
+    private var popover: NSPopover?
     private var eventMonitor: Any?
     private var refreshTimer: Timer?
     
@@ -13,7 +13,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         ProcessInfo.processInfo.disableAutomaticTermination("ClaudeBar background monitoring")
         setupStatusItem()
-        setupPopover()
         setupNotifications()
         startTimer()
         
@@ -43,12 +42,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         updateButtonTitle()
     }
     
-    private func setupPopover() {
-        popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 535)
-        popover.behavior = .transient
-        popover.animates = true
-        popover.contentViewController = NSHostingController(rootView: PopoverView(viewModel: viewModel))
+    /// Built on first use. A status item that is never clicked should not pay
+    /// for a SwiftUI hosting controller it never shows.
+    private func loadedPopover() -> NSPopover {
+        if let existing = popover { return existing }
+        let created = NSPopover()
+        created.contentSize = NSSize(width: 320, height: 535)
+        created.behavior = .transient
+        created.animates = true
+        created.contentViewController = NSHostingController(rootView: PopoverView(viewModel: viewModel))
+        popover = created
+        return created
     }
     
     private func setupNotifications() {
@@ -83,7 +87,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func togglePopover(_ sender: NSStatusBarButton) {
-        if popover.isShown {
+        if popover?.isShown == true {
             closePopover()
         } else {
             showPopover(sender)
@@ -91,7 +95,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func showPopover(_ sender: NSStatusBarButton) {
-        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        loadedPopover().show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
         viewModel.refresh { [weak self] in
             guard let self = self else { return }
             self.updateButtonTitle()
@@ -105,7 +109,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func closePopover() {
-        popover.performClose(nil)
+        popover?.performClose(nil)
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil

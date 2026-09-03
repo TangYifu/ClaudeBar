@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ImageIO
 
 public struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
@@ -459,17 +460,33 @@ public struct PopoverView: View {
         }
     }
     
-    private func loadClaudeAppIcon() -> NSImage? {
-        if let bundleImage = NSImage(named: "ClaudeAppIcon") {
-            return bundleImage
+    private func loadClaudeAppIcon() -> NSImage? { PopoverView.claudeAppIcon }
+
+    /// The asset is 1024x1024 but the header draws it at 32pt, so decoding it
+    /// whole costs 4 MB resident for pixels that are never shown. Decode a
+    /// thumbnail large enough for a 3x display instead, once, for the process.
+    private static let claudeAppIcon: NSImage? = {
+        var sources: [URL] = []
+        if let bundled = Bundle.main.url(forResource: "ClaudeAppIcon", withExtension: "png") {
+            sources.append(bundled)
         }
-        if let resourcePath = Bundle.main.path(forResource: "ClaudeAppIcon", ofType: "png"),
-           let img = NSImage(contentsOfFile: resourcePath) {
-            return img
+        sources.append(URL(fileURLWithPath:
+            "/Applications/Claude.app/Contents/Resources/ion-dist/images/claude_app_icon.png"))
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 128
+        ]
+        for url in sources {
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            else { continue }
+            return NSImage(cgImage: thumbnail,
+                           size: NSSize(width: thumbnail.width, height: thumbnail.height))
         }
-        let fallbackPath = "/Applications/Claude.app/Contents/Resources/ion-dist/images/claude_app_icon.png"
-        return NSImage(contentsOfFile: fallbackPath)
-    }
+        return nil
+    }()
 }
 
 // MARK: - Compact Button Style
