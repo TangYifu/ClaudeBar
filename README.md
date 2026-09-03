@@ -4,6 +4,12 @@
 
 纯原生 Swift + SwiftUI 编写，内存仅占用 ~30MB，无需 Electron、Python 或 Node.js 等运行时依赖。
 
+## 📸 产品预览
+
+<p align="center">
+  <img src="docs/images/claudebar-overview.png" alt="ClaudeBar 菜单栏配额与 Token 用量面板" width="346">
+</p>
+
 ---
 
 ## ✨ 特性
