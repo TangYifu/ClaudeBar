@@ -7,7 +7,7 @@
 ## 📸 产品预览
 
 <p align="center">
-  <img src="docs/images/claudebar-overview.png" alt="ClaudeBar 菜单栏配额与 Token 用量面板" width="346">
+  <img src="docs/images/claudebar-overview-v2.png" alt="ClaudeBar 菜单栏配额与 Token 用量面板" width="346">
 </p>
 
 ---
