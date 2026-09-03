@@ -45,8 +45,9 @@ public final class SettingsManager: ObservableObject {
         }
     }
 
-    /// Off by default: the island needs a window that lives for the whole
-    /// session, which costs roughly as much memory as the rest of the app.
+    /// On by default where the hardware has a notch. Switching it off tears the
+    /// window down again, which matters because that window lives for the whole
+    /// session and costs roughly as much memory as the rest of the app.
     @Published public var showNotchIsland: Bool {
         didSet {
             UserDefaults.standard.set(showNotchIsland, forKey: "showNotchIsland")
@@ -58,7 +59,7 @@ public final class SettingsManager: ObservableObject {
         self.showPercentage = UserDefaults.standard.object(forKey: "showPercentage") as? Bool ?? true
         self.refreshInterval = UserDefaults.standard.object(forKey: "refreshInterval") as? Int ?? 3
         self.enableQuotaNotification = UserDefaults.standard.object(forKey: "enableQuotaNotification") as? Bool ?? true
-        self.showNotchIsland = UserDefaults.standard.object(forKey: "showNotchIsland") as? Bool ?? false
+        self.showNotchIsland = UserDefaults.standard.object(forKey: "showNotchIsland") as? Bool ?? true
         
         if #available(macOS 13.0, *) {
             self.launchAtLogin = SMAppService.mainApp.status == .enabled
