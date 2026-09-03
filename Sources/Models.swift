@@ -61,6 +61,52 @@ public struct AccountInfo {
     }
 }
 
+// MARK: - Today Token Stats
+
+public struct TodayTokenStats {
+    public var totalTokens: Int = 0
+    public var inputTokens: Int = 0
+    public var outputTokens: Int = 0
+    public var cacheCreationTokens: Int = 0
+    public var cacheReadTokens: Int = 0
+    public var messageCount: Int = 0
+    public var tokensByModel: [String: Int] = [:]
+    
+    public var totalFormatted: String {
+        formatTokenNumber(totalTokens)
+    }
+    
+    public var outputFormatted: String {
+        formatTokenNumber(outputTokens)
+    }
+    
+    public var cacheEfficiencyPercent: Int {
+        let totalInput = inputTokens + cacheCreationTokens + cacheReadTokens
+        guard totalInput > 0 else { return 0 }
+        return Int(round(Double(cacheReadTokens) / Double(totalInput) * 100.0))
+    }
+    
+    public var topModelsSummary: [(name: String, formatted: String)] {
+        tokensByModel.sorted { $0.value > $1.value }.prefix(2).map { (key, val) in
+            let cleanName = key
+                .replacingOccurrences(of: "claude-", with: "")
+                .replacingOccurrences(of: "-20251001", with: "")
+                .capitalized
+            return (cleanName, formatTokenNumber(val))
+        }
+    }
+    
+    private func formatTokenNumber(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000.0)
+        } else if count >= 1_000 {
+            return String(format: "%.1fK", Double(count) / 1_000.0)
+        } else {
+            return "\(count)"
+        }
+    }
+}
+
 // MARK: - Formatted Usage View Model
 
 public struct FormattedUsage {
@@ -74,6 +120,8 @@ public struct FormattedUsage {
     
     public var extraUsageEnabled: Bool = false
     public var extraSpendFormatted: String = "$0.00"
+    
+    public var todayStats: TodayTokenStats = TodayTokenStats()
     
     public var account: AccountInfo = AccountInfo()
     public var lastUpdated: Date = Date()

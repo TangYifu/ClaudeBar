@@ -36,23 +36,27 @@ public final class ClaudeUsageService: @unchecked Sendable {
             guard let self = self else { return }
             
             let account = self.loadAccountInfo()
+            let todayStats = self.computeTodayTokenStats()
             
             // 1. Try fetching via API token
             if let token = self.fetchAccessTokenFromKeychain() {
                 self.fetchUsageFromAPI(token: token) { result in
                     switch result {
                     case .success(let response):
-                        let formatted = self.formatResponse(response, account: account, isOffline: false)
+                        var formatted = self.formatResponse(response, account: account, isOffline: false)
+                        formatted.todayStats = todayStats
                         DispatchQueue.main.async { completion(formatted) }
                     case .failure(let error):
                         print("API request failed: \(error.localizedDescription), falling back to local cache")
-                        let formatted = self.fetchFromLocalCache(account: account, errorHint: error.localizedDescription)
+                        var formatted = self.fetchFromLocalCache(account: account, errorHint: error.localizedDescription)
+                        formatted.todayStats = todayStats
                         DispatchQueue.main.async { completion(formatted) }
                     }
                 }
             } else {
                 print("Keychain token unavailable, falling back to local cache")
-                let formatted = self.fetchFromLocalCache(account: account, errorHint: "Keychain 凭据未就绪，使用本地缓存")
+                var formatted = self.fetchFromLocalCache(account: account, errorHint: "Keychain 凭据未就绪，使用本地缓存")
+                formatted.todayStats = todayStats
                 DispatchQueue.main.async { completion(formatted) }
             }
         }
@@ -157,6 +161,81 @@ public final class ClaudeUsageService: @unchecked Sendable {
         fallback.isOffline = true
         fallback.errorMessage = errorHint
         return fallback
+    }
+    
+    // MARK: - Today Token Stats Computation
+    
+    public func computeTodayTokenStats() -> TodayTokenStats {
+        var stats = TodayTokenStats()
+        let fileManager = FileManager.default
+        let home = fileManager.homeDirectoryForCurrentUser
+        let projectsDir = home.appendingPathComponent(".claude/projects")
+        
+        let startOfDay = Calendar.current.startOfDay(for: Date())
+        
+        guard let enumerator = fileManager.enumerator(
+            at: projectsDir,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return stats
+        }
+        
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "jsonl" else { continue }
+            
+            guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let modDate = values.contentModificationDate,
+                  modDate >= startOfDay else {
+                continue
+            }
+            
+            guard let data = try? Data(contentsOf: fileURL),
+                  let content = String(data: data, encoding: .utf8) else {
+                continue
+            }
+            
+            for line in content.split(separator: "\n") {
+                guard line.contains("\"usage\"") else { continue }
+                guard let lineData = line.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+                    continue
+                }
+                
+                var usageDict: [String: Any]? = nil
+                var model: String? = json["model"] as? String
+                
+                if let u = json["usage"] as? [String: Any] {
+                    usageDict = u
+                } else if let msg = json["message"] as? [String: Any] {
+                    usageDict = msg["usage"] as? [String: Any]
+                    if model == nil { model = msg["model"] as? String }
+                } else if let resp = json["response"] as? [String: Any] {
+                    usageDict = resp["usage"] as? [String: Any]
+                    if model == nil { model = resp["model"] as? String }
+                }
+                
+                if let u = usageDict {
+                    let inp = u["input_tokens"] as? Int ?? 0
+                    let out = u["output_tokens"] as? Int ?? 0
+                    let cre = u["cache_creation_input_tokens"] as? Int ?? 0
+                    let rea = u["cache_read_input_tokens"] as? Int ?? 0
+                    
+                    stats.inputTokens += inp
+                    stats.outputTokens += out
+                    stats.cacheCreationTokens += cre
+                    stats.cacheReadTokens += rea
+                    stats.messageCount += 1
+                    
+                    let m = model ?? "claude-opus-5"
+                    let sum = inp + out + cre + rea
+                    stats.tokensByModel[m, default: 0] += sum
+                }
+            }
+        }
+        
+        return stats
     }
     
     // MARK: - Account Info Reader

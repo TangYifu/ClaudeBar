@@ -34,6 +34,9 @@ public struct PopoverView: View {
                 badgeText: "Weekly"
             )
             
+            // MARK: - Today Token Activity Card
+            todayTokensCard
+            
             // MARK: - Extra Usage Card (if applicable)
             extraUsageRow
             
@@ -164,6 +167,77 @@ public struct PopoverView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
+    }
+    
+    private var todayTokensCard: some View {
+        VStack(spacing: 7) {
+            HStack {
+                HStack(spacing: 5) {
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(red: 0.85, green: 0.42, blue: 0.26))
+                    Text("今日 Token 消耗")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.primary)
+                }
+                
+                Spacer()
+                
+                Text(viewModel.usage.todayStats.totalFormatted)
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+            }
+            
+            // Sub-metrics row
+            HStack(spacing: 16) {
+                metricItem(label: "生成输出", value: viewModel.usage.todayStats.outputFormatted)
+                metricItem(label: "交互消息", value: "\(viewModel.usage.todayStats.messageCount)条")
+                metricItem(label: "缓存命中", value: "\(viewModel.usage.todayStats.cacheEfficiencyPercent)%")
+                Spacer()
+            }
+            .padding(.top, 1)
+            
+            // Model breakdown tags
+            if !viewModel.usage.todayStats.topModelsSummary.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(viewModel.usage.todayStats.topModelsSummary, id: \.name) { model in
+                        HStack(spacing: 3) {
+                            Text(model.name)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.secondary)
+                            Text(model.formatted)
+                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                .foregroundColor(.primary)
+                        }
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.primary.opacity(0.04))
+                        .cornerRadius(4)
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .padding(9)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.03))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+        )
+    }
+    
+    private func metricItem(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+        }
     }
     
     private var extraUsageRow: some View {
