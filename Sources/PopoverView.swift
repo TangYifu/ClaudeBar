@@ -188,23 +188,23 @@ public struct PopoverView: View {
                     .foregroundColor(viewModel.usage.todayStats.totalTokens > 0 ? .primary : .secondary)
             }
             
-            // Sub-metrics rows
-            VStack(spacing: 6) {
-                HStack(spacing: 0) {
-                    metricItem(label: "生成输出", value: viewModel.usage.todayStats.outputFormatted)
-                    Spacer()
-                    metricItem(label: "用户输入", value: viewModel.usage.todayStats.userInputFormatted)
-                    Spacer()
-                    metricItem(label: "缓存命中读取", value: viewModel.usage.todayStats.cacheReadFormatted)
-                }
+            // Sub-metrics 3-column strict grid
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), alignment: .leading),
+                    GridItem(.flexible(), alignment: .leading),
+                    GridItem(.flexible(), alignment: .trailing)
+                ],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                metricItem(label: "生成输出", value: viewModel.usage.todayStats.outputFormatted, alignment: .leading)
+                metricItem(label: "用户输入", value: viewModel.usage.todayStats.userInputFormatted, alignment: .leading)
+                metricItem(label: "缓存命中读取", value: viewModel.usage.todayStats.cacheReadFormatted, alignment: .trailing)
                 
-                HStack(spacing: 0) {
-                    metricItem(label: "缓存命中率", value: "\(viewModel.usage.todayStats.cacheEfficiencyPercent)%")
-                    Spacer()
-                    metricItem(label: "交互轮次", value: "\(viewModel.usage.todayStats.userPromptsCount)轮")
-                    Spacer()
-                    metricItem(label: "模型调用", value: "\(viewModel.usage.todayStats.modelCallsCount)次")
-                }
+                metricItem(label: "缓存命中率", value: "\(viewModel.usage.todayStats.cacheEfficiencyPercent)%", alignment: .leading)
+                metricItem(label: "交互轮次", value: "\(viewModel.usage.todayStats.userPromptsCount)轮", alignment: .leading)
+                metricItem(label: "模型调用", value: "\(viewModel.usage.todayStats.modelCallsCount)次", alignment: .trailing)
             }
             .padding(.top, 2)
             
@@ -227,6 +227,7 @@ public struct PopoverView: View {
                     }
                     Spacer()
                 }
+                .padding(.top, 1)
             }
         }
         .padding(9)
@@ -240,8 +241,8 @@ public struct PopoverView: View {
         )
     }
     
-    private func metricItem(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+    private func metricItem(label: String, value: String, alignment: HorizontalAlignment = .leading) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
             Text(label)
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
