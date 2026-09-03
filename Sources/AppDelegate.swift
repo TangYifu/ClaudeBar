@@ -155,35 +155,50 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     public static func openTerminalAndRunClaude() {
-        let script = """
-        tell application "Terminal"
-            reopen
-            activate
-            do script "export PATH=\\"$HOME/.npm-global/bin:$PATH\\"; claude"
-        end tell
+        let fileManager = FileManager.default
+        let appSupport = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/ClaudeBar", isDirectory: true)
+        
+        try? fileManager.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        let scriptUrl = appSupport.appendingPathComponent("run-claude.command")
+        
+        let scriptContent = """
+        #!/bin/bash
+        export PATH="$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+        cd "$HOME"
+        clear
+        if command -v claude >/dev/null 2>&1; then
+            claude
+        else
+            echo "未找到 claude 命令，请检查是否已通过 npm 安装 @anthropic-ai/claude-code"
+        fi
+        exec "${SHELL:-/bin/zsh}"
         """
         
-        if let terminalUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
+        do {
+            try scriptContent.write(to: scriptUrl, atomically: true, encoding: .utf8)
+            let chmodProcess = Process()
+            chmodProcess.executableURL = URL(fileURLWithPath: "/bin/chmod")
+            chmodProcess.arguments = ["+x", scriptUrl.path]
+            try chmodProcess.run()
+            chmodProcess.waitUntilExit()
+            
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
-            NSWorkspace.shared.openApplication(at: terminalUrl, configuration: config) { app, _ in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    if #available(macOS 14.0, *) {
-                        app?.activate()
+            
+            if let terminalUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
+                NSWorkspace.shared.open([scriptUrl], withApplicationAt: terminalUrl, configuration: config) { app, error in
+                    if let err = error {
+                        print("Failed to open with Terminal: \(err)")
                     } else {
-                        app?.activate(options: .activateIgnoringOtherApps)
-                    }
-                    if let appleScript = NSAppleScript(source: script) {
-                        var error: NSDictionary?
-                        appleScript.executeAndReturnError(&error)
+                        app?.activate()
                     }
                 }
+            } else {
+                NSWorkspace.shared.open(scriptUrl)
             }
-        } else {
-            if let appleScript = NSAppleScript(source: script) {
-                var error: NSDictionary?
-                appleScript.executeAndReturnError(&error)
-            }
+        } catch {
+            print("Failed to launch Claude terminal: \(error)")
         }
     }
     
