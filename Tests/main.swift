@@ -88,6 +88,79 @@ private func runTokenScannerTests() throws {
     expect(unchanged[.today]?.totalTokens == 300, "cached totals must remain stable")
 }
 
+private func runStaleFileFastForwardTests() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeBarStale-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let projects = root.appendingPathComponent("projects/demo")
+    try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+    let log = projects.appendingPathComponent("session.jsonl")
+    let cache = root.appendingPathComponent("cache/token.json")
+
+    // The line carries an in-window timestamp even though the file itself was
+    // last written before the window opened. Skipping it is the whole point:
+    // it is what stops a resumed old session from forcing a full re-read.
+    try jsonLine(usage("2026-09-03T01:00:00.000Z", output: 40)).write(to: log)
+    let stale = ISO8601DateFormatter().date(from: "2026-08-20T00:00:00Z")!
+    try FileManager.default.setAttributes([.modificationDate: stale], ofItemAtPath: log.path)
+
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    calendar.firstWeekday = 2
+    let fixedNow = ISO8601DateFormatter().date(from: "2026-09-03T12:00:00Z")!
+    let scanner = TokenStatsScanner(projectsDirectory: root.appendingPathComponent("projects"), cacheURL: cache, calendar: calendar) {
+        fixedNow
+    }
+
+    let first = scanner.compute()
+    expect(first[.today]?.modelCallsCount == 0, "logs untouched since before the window must be skipped entirely")
+
+    let handle = try FileHandle(forWritingTo: log)
+    try handle.seekToEnd()
+    try handle.write(contentsOf: jsonLine(usage("2026-09-03T02:00:00.000Z", output: 140)))
+    try handle.close()
+
+    let second = scanner.compute()
+    expect(second[.today]?.modelCallsCount == 1, "only bytes appended after the fast-forward should be scanned")
+    expect(second[.today]?.totalTokens == 200, "fast-forwarded bytes must not be re-parsed")
+}
+
+private func runCacheHorizonTests() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeBarHorizon-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let projects = root.appendingPathComponent("projects/demo")
+    try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+    let log = projects.appendingPathComponent("session.jsonl")
+    let cache = root.appendingPathComponent("cache/token.json")
+
+    var initial = Data()
+    initial.append(jsonLine(usage("2026-08-26T01:00:00.000Z", output: 40)))
+    initial.append(jsonLine(usage("2026-09-03T01:00:00.000Z", output: 60)))
+    try initial.write(to: log)
+
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    calendar.firstWeekday = 2
+    let projectsRoot = root.appendingPathComponent("projects")
+
+    let current = TokenStatsScanner(projectsDirectory: projectsRoot, cacheURL: cache, calendar: calendar) {
+        ISO8601DateFormatter().date(from: "2026-09-03T12:00:00Z")!
+    }
+    let thisWeek = current.compute()
+    expect(thisWeek[.thisWeek]?.modelCallsCount == 1, "only the current natural week should be counted")
+
+    // A second pass is what actually evicts the earlier week's events from the
+    // cache, so the rebuild below has something real to recover.
+    _ = current.compute()
+
+    // Reaching further back than the cache was built for has to discard the
+    // fast-forwarded offsets, otherwise the earlier week would read as empty.
+    let earlier = TokenStatsScanner(projectsDirectory: projectsRoot, cacheURL: cache, calendar: calendar) {
+        ISO8601DateFormatter().date(from: "2026-08-27T12:00:00Z")!
+    }
+    let previousWeek = earlier.compute()
+    expect(previousWeek[.thisWeek]?.modelCallsCount == 1, "a window reaching before the cache horizon must rebuild")
+}
+
 private func runRetryAfterTests() {
     let now = Date(timeIntervalSince1970: 1_000)
     expect(RetryAfterParser.date(from: "120", now: now) == Date(timeIntervalSince1970: 1_120),
@@ -109,6 +182,8 @@ private func runRetryAfterTests() {
 
 do {
     try runTokenScannerTests()
+    try runStaleFileFastForwardTests()
+    try runCacheHorizonTests()
     runRetryAfterTests()
 } catch {
     failures += 1

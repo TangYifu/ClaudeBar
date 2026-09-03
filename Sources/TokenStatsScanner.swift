@@ -19,9 +19,25 @@ public final class TokenStatsScanner {
     }
 
     private struct ScanCache: Codable {
-        var version = 1
+        var version = ScanCache.currentVersion
+        // Earliest instant the retained offsets are valid for. Files older than
+        // this are fast-forwarded, so a window that reaches further back than
+        // the cache was built for has to be rebuilt from scratch.
+        var horizon: Date?
         var files: [String: CachedFile] = [:]
+
+        static let currentVersion = 2
     }
+
+    private struct DiscoveredFile {
+        let url: URL
+        let size: UInt64
+        let modified: Date
+    }
+
+    /// Appended data is consumed in fixed-size chunks so a multi-megabyte
+    /// session log never has to be resident in full.
+    private static let chunkSize = 256 * 1024
 
     private let projectsDirectory: URL
     private let cacheURL: URL
@@ -57,14 +73,18 @@ public final class TokenStatsScanner {
         let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: currentDate)?.start ?? startOfToday
         let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? currentDate
 
-        var cache = loadCache()
-        let discovered = discoverJSONLFiles(modifiedSince: startOfWeek)
-        let existingPaths = Set(discovered.map(\.path))
+        var cache = loadCache(horizon: startOfWeek)
+        let discovered = discoverJSONLFiles()
+        // Only entries whose file is gone from disk are evicted. Offsets for
+        // files that fall outside the current window stay valid, so resuming an
+        // old session never forces a full re-read of its log.
+        let existingPaths = Set(discovered.map(\.url.path))
         cache.files = cache.files.filter { existingPaths.contains($0.key) }
 
-        for fileURL in discovered {
-            updateCache(for: fileURL, earliestDate: startOfWeek, cache: &cache)
+        for file in discovered {
+            updateCache(for: file, earliestDate: startOfWeek, cache: &cache)
         }
+        cache.horizon = startOfWeek
         saveCache(cache)
 
         var today = PeriodTokenStats()
@@ -85,38 +105,45 @@ public final class TokenStatsScanner {
         return [.today: today, .yesterday: yesterday, .thisWeek: week]
     }
 
-    private func discoverJSONLFiles(modifiedSince date: Date) -> [URL] {
-        let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
+    private func discoverJSONLFiles() -> [DiscoveredFile] {
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey, .fileSizeKey]
         guard let enumerator = FileManager.default.enumerator(
             at: projectsDirectory,
             includingPropertiesForKeys: keys,
             options: [.skipsHiddenFiles]
         ) else { return [] }
 
-        var result: [URL] = []
+        var result: [DiscoveredFile] = []
         for case let url as URL in enumerator where url.pathExtension == "jsonl" {
             guard let values = try? url.resourceValues(forKeys: Set(keys)),
                   values.isRegularFile == true,
                   let modified = values.contentModificationDate,
-                  modified >= date else { continue }
-            result.append(url)
+                  let size = values.fileSize else { continue }
+            result.append(DiscoveredFile(url: url, size: UInt64(size), modified: modified))
         }
         return result
     }
 
-    private func updateCache(for fileURL: URL, earliestDate: Date, cache: inout ScanCache) {
-        let path = fileURL.path
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
-              let fileSize = (attributes[.size] as? NSNumber)?.uint64Value else { return }
-
+    private func updateCache(for file: DiscoveredFile, earliestDate: Date, cache: inout ScanCache) {
+        let path = file.url.path
         var state = cache.files[path] ?? CachedFile(offset: 0, trailingBytes: Data(), events: [])
-        if fileSize < state.offset {
+        if file.size < state.offset {
             state = CachedFile(offset: 0, trailingBytes: Data(), events: [])
         }
         state.events.removeAll { $0.timestamp < earliestDate }
 
-        guard fileSize > state.offset,
-              let handle = try? FileHandle(forReadingFrom: fileURL) else {
+        // Every line in a log last written before the window opened predates the
+        // window as well, so none of it can contribute. Skip past those bytes
+        // instead of re-reading them the next time the session is resumed.
+        if file.modified < earliestDate {
+            state.offset = file.size
+            state.trailingBytes = Data()
+            cache.files[path] = state
+            return
+        }
+
+        guard file.size > state.offset,
+              let handle = try? FileHandle(forReadingFrom: file.url) else {
             cache.files[path] = state
             return
         }
@@ -124,34 +151,61 @@ public final class TokenStatsScanner {
 
         do {
             try handle.seek(toOffset: state.offset)
-            let appended = try handle.readToEnd() ?? Data()
-            var bytes = state.trailingBytes
-            bytes.append(appended)
+            var consumed = state.offset
+            var pending = [UInt8](state.trailingBytes)
             state.trailingBytes = Data()
 
-            var lineStart = bytes.startIndex
-            for index in bytes.indices where bytes[index] == 0x0A {
-                if index > lineStart {
-                    let line = Data(bytes[lineStart..<index])
-                    if let event = parseEvent(line, fileURL: fileURL) {
-                        state.events.append(event)
-                    }
-                }
-                lineStart = bytes.index(after: index)
+            while let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty {
+                consumed += UInt64(chunk.count)
+                pending.append(contentsOf: chunk)
+                consumeCompleteLines(from: &pending, fileURL: file.url, into: &state.events)
             }
-            if lineStart < bytes.endIndex {
-                let remainder = Data(bytes[lineStart..<bytes.endIndex])
-                if let event = parseEvent(remainder, fileURL: fileURL) {
+
+            // Whatever trails the final newline is either a complete line on a
+            // file that does not end in one, or a partial write to resume from.
+            if !pending.isEmpty {
+                if let event = parseEvent(Data(pending), fileURL: file.url) {
                     state.events.append(event)
                 } else {
-                    state.trailingBytes = remainder
+                    state.trailingBytes = Data(pending)
                 }
             }
-            state.offset = fileSize
+            state.offset = consumed
         } catch {
             return
         }
         cache.files[path] = state
+    }
+
+    private func consumeCompleteLines(from buffer: inout [UInt8], fileURL: URL, into events: inout [CachedEvent]) {
+        var lineRanges: [Range<Int>] = []
+        var lineStart = 0
+
+        // memchr over a contiguous buffer, rather than subscripting Data once
+        // per byte, keeps the line split off the hot path for large logs.
+        buffer.withUnsafeBufferPointer { pointer in
+            guard let base = pointer.baseAddress else { return }
+            let total = pointer.count
+            var cursor = 0
+            while cursor < total {
+                guard let hit = memchr(base + cursor, 0x0A, total - cursor) else { break }
+                let newline = UnsafeRawPointer(hit) - UnsafeRawPointer(base)
+                if newline > lineStart {
+                    lineRanges.append(lineStart..<newline)
+                }
+                lineStart = newline + 1
+                cursor = lineStart
+            }
+        }
+
+        for range in lineRanges {
+            if let event = parseEvent(Data(buffer[range]), fileURL: fileURL) {
+                events.append(event)
+            }
+        }
+        if lineStart > 0 {
+            buffer.removeFirst(lineStart)
+        }
     }
 
     private func parseEvent(_ data: Data, fileURL: URL) -> CachedEvent? {
@@ -245,10 +299,12 @@ public final class TokenStatsScanner {
         stats.tokensByProject[event.project, default: 0] += total
     }
 
-    private func loadCache() -> ScanCache {
+    private func loadCache(horizon: Date) -> ScanCache {
         guard let data = try? Data(contentsOf: cacheURL),
               let cache = try? JSONDecoder().decode(ScanCache.self, from: data),
-              cache.version == 1 else { return ScanCache() }
+              cache.version == ScanCache.currentVersion,
+              let cachedHorizon = cache.horizon,
+              cachedHorizon <= horizon else { return ScanCache() }
         return cache
     }
 
