@@ -30,7 +30,6 @@ public final class ClaudeUsageService: @unchecked Sendable {
     private let fetchLock = NSLock()
     private var isFetching = false
     private var lastSuccessfulUsage: FormattedUsage?
-    private var lastStatsByPeriod: [TimePeriod: PeriodTokenStats] = [:]
     private var applicationSupportDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/ClaudeBar", isDirectory: true)
@@ -43,14 +42,7 @@ public final class ClaudeUsageService: @unchecked Sendable {
     
     // MARK: - Public Fetch
     
-    /// - Parameter includeTokenStats: Scanning `~/.claude/projects` is by far the
-    ///   most expensive part of a refresh, and nothing outside the popover reads
-    ///   its result. Background refreshes pass `false` and reuse the last scan.
-    public func fetchUsage(
-        force: Bool = false,
-        includeTokenStats: Bool = true,
-        completion: @escaping (FormattedUsage) -> Void
-    ) {
+    public func fetchUsage(force: Bool = false, completion: @escaping (FormattedUsage) -> Void) {
         fetchLock.lock()
         if isFetching && !force {
             fetchLock.unlock()
@@ -66,9 +58,7 @@ public final class ClaudeUsageService: @unchecked Sendable {
             guard let self = self else { return }
             
             let account = self.loadAccountInfo()
-            let statsByPeriod = includeTokenStats
-                ? self.storeTokenStats(self.computeMultiPeriodTokenStats())
-                : self.cachedTokenStats()
+            let statsByPeriod = self.computeMultiPeriodTokenStats()
             
             let finish: (FormattedUsage) -> Void = { [weak self] result in
                 guard let self = self else { return }
@@ -242,20 +232,6 @@ public final class ClaudeUsageService: @unchecked Sendable {
     }
     
     // MARK: - Multi-Period Token Stats Computation
-
-    @discardableResult
-    private func storeTokenStats(_ stats: [TimePeriod: PeriodTokenStats]) -> [TimePeriod: PeriodTokenStats] {
-        fetchLock.lock()
-        lastStatsByPeriod = stats
-        fetchLock.unlock()
-        return stats
-    }
-
-    private func cachedTokenStats() -> [TimePeriod: PeriodTokenStats] {
-        fetchLock.lock()
-        defer { fetchLock.unlock() }
-        return lastStatsByPeriod
-    }
     
     public func computeMultiPeriodTokenStats() -> [TimePeriod: PeriodTokenStats] {
         let home = FileManager.default.homeDirectoryForCurrentUser
