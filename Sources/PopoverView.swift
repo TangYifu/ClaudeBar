@@ -297,6 +297,7 @@ public struct PopoverView: View {
             .disabled(viewModel.isLoading)
             
             Button(action: {
+                NotificationCenter.default.post(name: .closePopover, object: nil)
                 if let url = URL(string: "https://claude.ai/settings/usage") {
                     NSWorkspace.shared.open(url)
                 }
@@ -308,7 +309,8 @@ public struct PopoverView: View {
             .buttonStyle(CompactButtonStyle())
             
             Button(action: {
-                openClaudeInTerminal()
+                NotificationCenter.default.post(name: .closePopover, object: nil)
+                AppDelegate.openTerminalAndRunClaude()
             }) {
                 Label("终端启动", systemImage: "terminal")
                     .font(.system(size: 11, weight: .medium))
@@ -398,14 +400,6 @@ public struct PopoverView: View {
         }
         let fallbackPath = "/Applications/Claude.app/Contents/Resources/ion-dist/images/claude_app_icon.png"
         return NSImage(contentsOfFile: fallbackPath)
-    }
-    
-    private func openClaudeInTerminal() {
-        let script = "tell application \"Terminal\" to do script \"claude\" activate"
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-        }
     }
 }
 

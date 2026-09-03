@@ -58,6 +58,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .settingsChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleClosePopover),
+            name: .closePopover,
+            object: nil
+        )
+    }
+    
+    @objc private func handleClosePopover() {
+        closePopover()
     }
     
     // MARK: - Status Item Interaction
@@ -141,10 +151,39 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func contextOpenTerminal() {
-        let script = "tell application \"Terminal\" to do script \"claude\" activate"
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
+        AppDelegate.openTerminalAndRunClaude()
+    }
+    
+    public static func openTerminalAndRunClaude() {
+        let script = """
+        tell application "Terminal"
+            reopen
+            activate
+            do script "export PATH=\\"$HOME/.npm-global/bin:$PATH\\"; claude"
+        end tell
+        """
+        
+        if let terminalUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.openApplication(at: terminalUrl, configuration: config) { app, _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    if #available(macOS 14.0, *) {
+                        app?.activate()
+                    } else {
+                        app?.activate(options: .activateIgnoringOtherApps)
+                    }
+                    if let appleScript = NSAppleScript(source: script) {
+                        var error: NSDictionary?
+                        appleScript.executeAndReturnError(&error)
+                    }
+                }
+            }
+        } else {
+            if let appleScript = NSAppleScript(source: script) {
+                var error: NSDictionary?
+                appleScript.executeAndReturnError(&error)
+            }
         }
     }
     

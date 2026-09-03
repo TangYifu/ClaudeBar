@@ -52,4 +52,5 @@ public final class SettingsManager: ObservableObject {
 
 extension Notification.Name {
     public static let settingsChanged = Notification.Name("ClaudeBarSettingsChanged")
+    public static let closePopover = Notification.Name("ClaudeBarClosePopover")
 }
