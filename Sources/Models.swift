@@ -68,7 +68,8 @@ public struct TodayTokenStats {
     public var outputTokens: Int = 0
     public var cacheCreationTokens: Int = 0
     public var cacheReadTokens: Int = 0
-    public var messageCount: Int = 0
+    public var modelCallsCount: Int = 0
+    public var userPromptsCount: Int = 0
     public var tokensByModel: [String: Int] = [:]
     
     public var totalTokens: Int {

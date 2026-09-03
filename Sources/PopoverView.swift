@@ -201,14 +201,9 @@ public struct PopoverView: View {
                 HStack(spacing: 0) {
                     metricItem(label: "缓存命中率", value: "\(viewModel.usage.todayStats.cacheEfficiencyPercent)%")
                     Spacer()
-                    metricItem(label: "交互消息数", value: "\(viewModel.usage.todayStats.messageCount)条")
+                    metricItem(label: "交互轮次", value: "\(viewModel.usage.todayStats.userPromptsCount)轮")
                     Spacer()
-                    // Align spacer with 3rd column
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("").font(.system(size: 9))
-                        Text("").font(.system(size: 11))
-                    }
-                    .frame(minWidth: 60)
+                    metricItem(label: "模型调用", value: "\(viewModel.usage.todayStats.modelCallsCount)次")
                 }
             }
             .padding(.top, 2)
@@ -443,9 +438,10 @@ public final class PopoverViewModel: ObservableObject {
     
     public init() {}
     
-    public func refresh(completion: (() -> Void)? = nil) {
+    public func refresh(force: Bool = false, completion: (() -> Void)? = nil) {
+        guard !isLoading || force else { return }
         isLoading = true
-        ClaudeUsageService.shared.fetchUsage { [weak self] newUsage in
+        ClaudeUsageService.shared.fetchUsage(force: force) { [weak self] newUsage in
             self?.usage = newUsage
             self?.isLoading = false
             completion?()

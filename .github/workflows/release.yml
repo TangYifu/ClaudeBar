@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Universal 2 Binary & Release
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Universal App Bundle (arm64 + x86_64)
+        run: |
+          chmod +x ./build.sh
+          ./build.sh --universal
+
+      - name: Verify Architecture & OS Compatibility
+        run: |
+          file build/ClaudeBar.app/Contents/MacOS/ClaudeBar
+          otool -l build/ClaudeBar.app/Contents/MacOS/ClaudeBar | grep -E "minos|sdk" | head -n 10
+
+      - name: Package Release Archive
+        run: |
+          cd build
+          zip -r -y "ClaudeBar-macOS-Universal.zip" "ClaudeBar.app"
+          shasum -a 256 "ClaudeBar-macOS-Universal.zip" > "ClaudeBar-macOS-Universal.zip.sha256"
+          echo "SHA256 Checksum:"
+          cat "ClaudeBar-macOS-Universal.zip.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/ClaudeBar-macOS-Universal.zip
+            build/ClaudeBar-macOS-Universal.zip.sha256
+          draft: false
+          prerelease: false
+          generate_release_notes: true

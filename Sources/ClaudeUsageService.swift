@@ -27,16 +27,42 @@ public final class ClaudeUsageService: @unchecked Sendable {
         return f
     }()
     
+    private let fetchLock = NSLock()
+    private var isFetching = false
+    private var lastSuccessfulUsage: FormattedUsage?
+    
     private init() {}
     
     // MARK: - Public Fetch
     
-    public func fetchUsage(completion: @escaping (FormattedUsage) -> Void) {
+    public func fetchUsage(force: Bool = false, completion: @escaping (FormattedUsage) -> Void) {
+        fetchLock.lock()
+        if isFetching && !force {
+            fetchLock.unlock()
+            if let cached = lastSuccessfulUsage {
+                completion(cached)
+            }
+            return
+        }
+        isFetching = true
+        fetchLock.unlock()
+        
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
             let account = self.loadAccountInfo()
             let todayStats = self.computeTodayTokenStats()
+            
+            let finish: (FormattedUsage) -> Void = { [weak self] result in
+                guard let self = self else { return }
+                self.fetchLock.lock()
+                self.isFetching = false
+                if !result.isOffline {
+                    self.lastSuccessfulUsage = result
+                }
+                self.fetchLock.unlock()
+                DispatchQueue.main.async { completion(result) }
+            }
             
             // 1. Try fetching via API token
             if let token = self.fetchAccessTokenFromKeychain() {
@@ -45,19 +71,19 @@ public final class ClaudeUsageService: @unchecked Sendable {
                     case .success(let response):
                         var formatted = self.formatResponse(response, account: account, isOffline: false)
                         formatted.todayStats = todayStats
-                        DispatchQueue.main.async { completion(formatted) }
+                        finish(formatted)
                     case .failure(let error):
                         print("API request failed: \(error.localizedDescription), falling back to local cache")
                         var formatted = self.fetchFromLocalCache(account: account, errorHint: error.localizedDescription)
                         formatted.todayStats = todayStats
-                        DispatchQueue.main.async { completion(formatted) }
+                        finish(formatted)
                     }
                 }
             } else {
                 print("Keychain token unavailable, falling back to local cache")
                 var formatted = self.fetchFromLocalCache(account: account, errorHint: "Keychain 凭据未就绪，使用本地缓存")
                 formatted.todayStats = todayStats
-                DispatchQueue.main.async { completion(formatted) }
+                finish(formatted)
             }
         }
     }
@@ -197,22 +223,40 @@ public final class ClaudeUsageService: @unchecked Sendable {
             }
             
             for line in content.split(separator: "\n") {
-                guard line.contains("\"usage\"") else { continue }
+                guard line.contains("\"usage\"") || line.contains("\"user\"") else { continue }
                 guard let lineData = line.data(using: .utf8),
                       let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
                     continue
                 }
                 
+                // 1. Strict Timestamp Validation
+                var recordDate: Date? = nil
+                if let tsStr = json["timestamp"] as? String {
+                    recordDate = self.isoFormatterWithFractional.date(from: tsStr) ?? self.isoFormatterStandard.date(from: tsStr)
+                } else if let tsNum = json["timestamp"] as? Double {
+                    recordDate = Date(timeIntervalSince1970: tsNum > 1e11 ? tsNum / 1000.0 : tsNum)
+                }
+                
+                // Strictly exclude records from prior days (even in resumed sessions)
+                guard let rDate = recordDate, rDate >= startOfDay else { continue }
+                
+                // 2. Track user prompts
+                let msgObj = json["message"] as? [String: Any]
+                if json["type"] as? String == "user" || msgObj?["role"] as? String == "user" {
+                    stats.userPromptsCount += 1
+                }
+                
+                // 3. Extract Token Usage
                 var usageDict: [String: Any]? = nil
                 var model: String? = json["model"] as? String
                 
                 if let u = json["usage"] as? [String: Any] {
                     usageDict = u
-                } else if let msg = json["message"] as? [String: Any] {
-                    usageDict = msg["usage"] as? [String: Any]
+                } else if let msg = msgObj, let u = msg["usage"] as? [String: Any] {
+                    usageDict = u
                     if model == nil { model = msg["model"] as? String }
-                } else if let resp = json["response"] as? [String: Any] {
-                    usageDict = resp["usage"] as? [String: Any]
+                } else if let resp = json["response"] as? [String: Any], let u = resp["usage"] as? [String: Any] {
+                    usageDict = u
                     if model == nil { model = resp["model"] as? String }
                 }
                 
@@ -226,7 +270,7 @@ public final class ClaudeUsageService: @unchecked Sendable {
                     stats.outputTokens += out
                     stats.cacheCreationTokens += cre
                     stats.cacheReadTokens += rea
-                    stats.messageCount += 1
+                    stats.modelCallsCount += 1
                     
                     let m = model ?? "claude-opus-5"
                     let sum = inp + out + cre + rea

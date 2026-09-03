@@ -13,8 +13,6 @@ echo "==> Cleaning old build..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
-
-echo "==> Compiling Swift sources..."
 SOURCES=(
     "$PROJECT_DIR/Sources/Models.swift"
     "$PROJECT_DIR/Sources/ClaudeUsageService.swift"
@@ -24,10 +22,37 @@ SOURCES=(
     "$PROJECT_DIR/Sources/main.swift"
 )
 
-swiftc -O \
-    -parse-as-library \
-    "${SOURCES[@]}" \
-    -o "$MACOS_DIR/$APP_NAME"
+BUILD_UNIVERSAL=false
+DO_INSTALL=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --universal)
+            BUILD_UNIVERSAL=true
+            ;;
+        --install|-i)
+            DO_INSTALL=true
+            ;;
+    esac
+done
+
+if [ "$BUILD_UNIVERSAL" = true ]; then
+    echo "==> Compiling Universal 2 Binary (arm64 + x86_64, macOS 12.0+)..."
+    mkdir -p "$BUILD_DIR/arm64" "$BUILD_DIR/x86_64"
+    swiftc -O -target arm64-apple-macos12.0 -parse-as-library "${SOURCES[@]}" -o "$BUILD_DIR/arm64/$APP_NAME"
+    swiftc -O -target x86_64-apple-macos12.0 -parse-as-library "${SOURCES[@]}" -o "$BUILD_DIR/x86_64/$APP_NAME"
+    lipo -create -output "$MACOS_DIR/$APP_NAME" "$BUILD_DIR/arm64/$APP_NAME" "$BUILD_DIR/x86_64/$APP_NAME"
+    rm -rf "$BUILD_DIR/arm64" "$BUILD_DIR/x86_64"
+else
+    ARCH="$(uname -m)"
+    TARGET="${ARCH}-apple-macos12.0"
+    echo "==> Compiling Swift sources (target: $TARGET)..."
+    swiftc -O \
+        -target "$TARGET" \
+        -parse-as-library \
+        "${SOURCES[@]}" \
+        -o "$MACOS_DIR/$APP_NAME"
+fi
 
 chmod +x "$MACOS_DIR/$APP_NAME"
 
@@ -41,7 +66,7 @@ codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
 echo "==> Build succeeded: $APP_BUNDLE"
 
 # Install to ~/Applications or /Applications if argument provided
-if [ "$1" == "--install" ] || [ "$1" == "-i" ]; then
+if [ "$DO_INSTALL" = true ]; then
     TARGET_DIR="/Applications"
     if [ ! -w "$TARGET_DIR" ]; then
         TARGET_DIR="$HOME/Applications"
