@@ -45,7 +45,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func setupPopover() {
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 480)
+        popover.contentSize = NSSize(width: 320, height: 535)
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = NSHostingController(rootView: PopoverView(viewModel: viewModel))
@@ -93,7 +93,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showPopover(_ sender: NSStatusBarButton) {
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
         viewModel.refresh { [weak self] in
-            self?.updateButtonTitle()
+            guard let self = self else { return }
+            self.updateButtonTitle()
+            self.settings.checkAndDeliverQuotaNotification(usage: self.viewModel.usage)
         }
         
         // Setup outside click monitor
@@ -147,7 +149,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Context Menu Actions
     
     @objc private func contextRefresh() {
-        refreshData()
+        refreshData(force: true)
     }
     
     @objc private func contextOpenTerminal() {
@@ -222,9 +224,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    private func refreshData() {
-        viewModel.refresh { [weak self] in
-            self?.updateButtonTitle()
+    private func refreshData(force: Bool = false) {
+        viewModel.refresh(force: force) { [weak self] in
+            guard let self = self else { return }
+            self.updateButtonTitle()
+            self.settings.checkAndDeliverQuotaNotification(usage: self.viewModel.usage)
         }
     }
     

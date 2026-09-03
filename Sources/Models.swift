@@ -61,9 +61,19 @@ public struct AccountInfo {
     }
 }
 
-// MARK: - Today Token Stats
+// MARK: - Time Period
 
-public struct TodayTokenStats {
+public enum TimePeriod: String, CaseIterable, Identifiable {
+    case today = "今天"
+    case yesterday = "昨天"
+    case thisWeek = "本周"
+    
+    public var id: String { rawValue }
+}
+
+// MARK: - Period Token Stats
+
+public struct PeriodTokenStats {
     public var inputTokens: Int = 0
     public var outputTokens: Int = 0
     public var cacheCreationTokens: Int = 0
@@ -71,6 +81,9 @@ public struct TodayTokenStats {
     public var modelCallsCount: Int = 0
     public var userPromptsCount: Int = 0
     public var tokensByModel: [String: Int] = [:]
+    public var tokensByProject: [String: Int] = [:]
+    
+    public init() {}
     
     public var totalTokens: Int {
         inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens
@@ -121,6 +134,15 @@ public struct TodayTokenStats {
         }
     }
     
+    public var topProjectsSummary: [(name: String, formatted: String, percent: Int)] {
+        let sorted = tokensByProject.sorted { $0.value > $1.value }.prefix(3)
+        let total = totalTokens > 0 ? totalTokens : 1
+        return sorted.map { (proj, count) in
+            let pct = Int(round(Double(count) / Double(total) * 100.0))
+            return (proj, formatTokenNumber(count), pct)
+        }
+    }
+    
     private func formatTokenNumber(_ count: Int) -> String {
         if count >= 1_000_000 {
             return String(format: "%.1fM", Double(count) / 1_000_000.0)
@@ -131,6 +153,8 @@ public struct TodayTokenStats {
         }
     }
 }
+
+public typealias TodayTokenStats = PeriodTokenStats
 
 // MARK: - Formatted Usage View Model
 
@@ -144,11 +168,16 @@ public struct FormattedUsage {
     public var sevenDayCountdown: String = "--"
     
     public var extraUsageEnabled: Bool = false
-    public var extraSpendFormatted: String = "$0.00"
-    
-    public var todayStats: TodayTokenStats = TodayTokenStats()
+    public var extraSpendFormatted: String = "--"
     
     public var account: AccountInfo = AccountInfo()
+    public var statsByPeriod: [TimePeriod: PeriodTokenStats] = [:]
+    
+    public var todayStats: PeriodTokenStats {
+        get { statsByPeriod[.today] ?? PeriodTokenStats() }
+        set { statsByPeriod[.today] = newValue }
+    }
+    
     public var lastUpdated: Date = Date()
     public var isOffline: Bool = false
     public var errorMessage: String? = nil

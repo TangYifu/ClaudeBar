@@ -51,7 +51,7 @@ public final class ClaudeUsageService: @unchecked Sendable {
             guard let self = self else { return }
             
             let account = self.loadAccountInfo()
-            let todayStats = self.computeTodayTokenStats()
+            let statsByPeriod = self.computeMultiPeriodTokenStats()
             
             let finish: (FormattedUsage) -> Void = { [weak self] result in
                 guard let self = self else { return }
@@ -70,19 +70,19 @@ public final class ClaudeUsageService: @unchecked Sendable {
                     switch result {
                     case .success(let response):
                         var formatted = self.formatResponse(response, account: account, isOffline: false)
-                        formatted.todayStats = todayStats
+                        formatted.statsByPeriod = statsByPeriod
                         finish(formatted)
                     case .failure(let error):
                         print("API request failed: \(error.localizedDescription), falling back to local cache")
                         var formatted = self.fetchFromLocalCache(account: account, errorHint: error.localizedDescription)
-                        formatted.todayStats = todayStats
+                        formatted.statsByPeriod = statsByPeriod
                         finish(formatted)
                     }
                 }
             } else {
                 print("Keychain token unavailable, falling back to local cache")
                 var formatted = self.fetchFromLocalCache(account: account, errorHint: "Keychain 凭据未就绪，使用本地缓存")
-                formatted.todayStats = todayStats
+                formatted.statsByPeriod = statsByPeriod
                 finish(formatted)
             }
         }
@@ -189,22 +189,29 @@ public final class ClaudeUsageService: @unchecked Sendable {
         return fallback
     }
     
-    // MARK: - Today Token Stats Computation
+    // MARK: - Multi-Period Token Stats Computation
     
-    public func computeTodayTokenStats() -> TodayTokenStats {
-        var stats = TodayTokenStats()
+    public func computeMultiPeriodTokenStats() -> [TimePeriod: PeriodTokenStats] {
+        var todayStats = PeriodTokenStats()
+        var yesterdayStats = PeriodTokenStats()
+        var weekStats = PeriodTokenStats()
+        
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
         let projectsDir = home.appendingPathComponent(".claude/projects")
         
-        let startOfDay = Calendar.current.startOfDay(for: Date())
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfToday = calendar.startOfDay(for: now)
+        let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday)!
+        let startOfWeek = calendar.date(byAdding: .day, value: -7, to: startOfToday)!
         
         guard let enumerator = fileManager.enumerator(
             at: projectsDir,
             includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
-            return stats
+            return [.today: todayStats, .yesterday: yesterdayStats, .thisWeek: weekStats]
         }
         
         for case let fileURL as URL in enumerator {
@@ -213,7 +220,7 @@ public final class ClaudeUsageService: @unchecked Sendable {
             guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
                   values.isRegularFile == true,
                   let modDate = values.contentModificationDate,
-                  modDate >= startOfDay else {
+                  modDate >= startOfWeek else {
                 continue
             }
             
@@ -221,6 +228,9 @@ public final class ClaudeUsageService: @unchecked Sendable {
                   let content = String(data: data, encoding: .utf8) else {
                 continue
             }
+            
+            let rel = fileURL.path.replacingOccurrences(of: projectsDir.path, with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let defaultProj = rel.split(separator: "/").first.map(String.init) ?? "default"
             
             for line in content.split(separator: "\n") {
                 guard line.contains("\"usage\"") || line.contains("\"user\"") else { continue }
@@ -237,13 +247,18 @@ public final class ClaudeUsageService: @unchecked Sendable {
                     recordDate = Date(timeIntervalSince1970: tsNum > 1e11 ? tsNum / 1000.0 : tsNum)
                 }
                 
-                // Strictly exclude records from prior days (even in resumed sessions)
-                guard let rDate = recordDate, rDate >= startOfDay else { continue }
+                guard let rDate = recordDate, rDate >= startOfWeek else { continue }
+                
+                let isToday = rDate >= startOfToday
+                let isYesterday = !isToday && rDate >= startOfYesterday
                 
                 // 2. Track user prompts
                 let msgObj = json["message"] as? [String: Any]
-                if json["type"] as? String == "user" || msgObj?["role"] as? String == "user" {
-                    stats.userPromptsCount += 1
+                let isUserPrompt = json["type"] as? String == "user" || msgObj?["role"] as? String == "user"
+                if isUserPrompt {
+                    weekStats.userPromptsCount += 1
+                    if isToday { todayStats.userPromptsCount += 1 }
+                    else if isYesterday { yesterdayStats.userPromptsCount += 1 }
                 }
                 
                 // 3. Extract Token Usage
@@ -265,21 +280,52 @@ public final class ClaudeUsageService: @unchecked Sendable {
                     let out = u["output_tokens"] as? Int ?? 0
                     let cre = u["cache_creation_input_tokens"] as? Int ?? 0
                     let rea = u["cache_read_input_tokens"] as? Int ?? 0
-                    
-                    stats.inputTokens += inp
-                    stats.outputTokens += out
-                    stats.cacheCreationTokens += cre
-                    stats.cacheReadTokens += rea
-                    stats.modelCallsCount += 1
-                    
-                    let m = model ?? "claude-opus-5"
                     let sum = inp + out + cre + rea
-                    stats.tokensByModel[m, default: 0] += sum
+                    let m = model ?? "claude-opus-5"
+                    
+                    var projName = defaultProj
+                    if let cwd = json["cwd"] as? String, !cwd.isEmpty {
+                        projName = URL(fileURLWithPath: cwd).lastPathComponent
+                    }
+                    
+                    // Accumulate This Week
+                    weekStats.inputTokens += inp
+                    weekStats.outputTokens += out
+                    weekStats.cacheCreationTokens += cre
+                    weekStats.cacheReadTokens += rea
+                    weekStats.modelCallsCount += 1
+                    weekStats.tokensByModel[m, default: 0] += sum
+                    weekStats.tokensByProject[projName, default: 0] += sum
+                    
+                    // Accumulate Today
+                    if isToday {
+                        todayStats.inputTokens += inp
+                        todayStats.outputTokens += out
+                        todayStats.cacheCreationTokens += cre
+                        todayStats.cacheReadTokens += rea
+                        todayStats.modelCallsCount += 1
+                        todayStats.tokensByModel[m, default: 0] += sum
+                        todayStats.tokensByProject[projName, default: 0] += sum
+                    }
+                    // Accumulate Yesterday
+                    else if isYesterday {
+                        yesterdayStats.inputTokens += inp
+                        yesterdayStats.outputTokens += out
+                        yesterdayStats.cacheCreationTokens += cre
+                        yesterdayStats.cacheReadTokens += rea
+                        yesterdayStats.modelCallsCount += 1
+                        yesterdayStats.tokensByModel[m, default: 0] += sum
+                        yesterdayStats.tokensByProject[projName, default: 0] += sum
+                    }
                 }
             }
         }
         
-        return stats
+        return [
+            .today: todayStats,
+            .yesterday: yesterdayStats,
+            .thisWeek: weekStats
+        ]
     }
     
     // MARK: - Account Info Reader

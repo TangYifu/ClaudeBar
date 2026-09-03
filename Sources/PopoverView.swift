@@ -4,6 +4,7 @@ import AppKit
 public struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
     @ObservedObject var settings = SettingsManager.shared
+    @State private var selectedPeriod: TimePeriod = .today
     
     public init(viewModel: PopoverViewModel) {
         self.viewModel = viewModel
@@ -170,50 +171,119 @@ public struct PopoverView: View {
     }
     
     private var todayTokensCard: some View {
-        VStack(spacing: 7) {
+        let currentStats = viewModel.usage.statsByPeriod[selectedPeriod] ?? viewModel.usage.todayStats
+        
+        return VStack(spacing: 7) {
             HStack {
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     Image(systemName: "flame.fill")
                         .font(.system(size: 11))
                         .foregroundColor(Color(red: 0.85, green: 0.42, blue: 0.26))
-                    Text("今日 Token 消耗")
+                    Text("Token 消耗")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.primary)
                 }
                 
                 Spacer()
                 
-                Text(viewModel.usage.todayStats.totalFormatted)
-                    .font(.system(size: 13, weight: viewModel.usage.todayStats.totalTokens > 0 ? .bold : .medium, design: .rounded))
-                    .foregroundColor(viewModel.usage.todayStats.totalTokens > 0 ? .primary : .secondary)
+                // Time Period Segmented Picker
+                HStack(spacing: 2) {
+                    ForEach(TimePeriod.allCases) { period in
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedPeriod = period
+                            }
+                        }) {
+                            Text(period.rawValue)
+                                .font(.system(size: 9.5, weight: selectedPeriod == period ? .semibold : .regular))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(
+                                    selectedPeriod == period
+                                        ? Color(red: 0.85, green: 0.42, blue: 0.26).opacity(0.18)
+                                        : Color.clear
+                                )
+                                .foregroundColor(selectedPeriod == period ? Color(red: 0.85, green: 0.42, blue: 0.26) : .secondary)
+                                .cornerRadius(4)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding(2)
+                .background(Color.primary.opacity(0.04))
+                .cornerRadius(5)
+                
+                Spacer()
+                
+                Text(currentStats.totalFormatted)
+                    .font(.system(size: 13, weight: currentStats.totalTokens > 0 ? .bold : .medium, design: .rounded))
+                    .foregroundColor(currentStats.totalTokens > 0 ? .primary : .secondary)
             }
             
             // Sub-metrics rows (3-way symmetric layout with equal gaps)
             VStack(spacing: 8) {
                 HStack(spacing: 0) {
-                    metricItem(label: "生成输出", value: viewModel.usage.todayStats.outputFormatted, alignment: .leading)
+                    metricItem(label: "生成输出", value: currentStats.outputFormatted, alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    metricItem(label: "用户输入", value: viewModel.usage.todayStats.userInputFormatted, alignment: .center)
+                    metricItem(label: "用户输入", value: currentStats.userInputFormatted, alignment: .center)
                         .frame(maxWidth: .infinity, alignment: .center)
-                    metricItem(label: "缓存读取", value: viewModel.usage.todayStats.cacheReadFormatted, alignment: .trailing)
+                    metricItem(label: "缓存读取", value: currentStats.cacheReadFormatted, alignment: .trailing)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 
                 HStack(spacing: 0) {
-                    metricItem(label: "缓存命中", value: "\(viewModel.usage.todayStats.cacheEfficiencyPercent)%", alignment: .leading)
+                    metricItem(label: "缓存命中", value: "\(currentStats.cacheEfficiencyPercent)%", alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    metricItem(label: "交互轮次", value: "\(viewModel.usage.todayStats.userPromptsCount)轮", alignment: .center)
+                    metricItem(label: "交互轮次", value: "\(currentStats.userPromptsCount)轮", alignment: .center)
                         .frame(maxWidth: .infinity, alignment: .center)
-                    metricItem(label: "模型调用", value: "\(viewModel.usage.todayStats.modelCallsCount)次", alignment: .trailing)
+                    metricItem(label: "模型调用", value: "\(currentStats.modelCallsCount)次", alignment: .trailing)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
             .padding(.top, 2)
             
+            // Project breakdown (Top Projects)
+            if !currentStats.topProjectsSummary.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text("项目排行")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    
+                    HStack(spacing: 4) {
+                        ForEach(currentStats.topProjectsSummary, id: \.name) { proj in
+                            HStack(spacing: 3) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 7))
+                                    .foregroundColor(Color(red: 0.85, green: 0.42, blue: 0.26))
+                                Text(proj.name)
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                Text(proj.formatted)
+                                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                    .foregroundColor(Color(red: 0.85, green: 0.42, blue: 0.26))
+                                Text("(\(proj.percent)%)")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.04))
+                            .cornerRadius(4)
+                        }
+                        Spacer()
+                    }
+                }
+                .padding(.top, 2)
+            }
+            
             // Model breakdown tags
-            if !viewModel.usage.todayStats.topModelsSummary.isEmpty {
+            if !currentStats.topModelsSummary.isEmpty {
                 HStack(spacing: 6) {
-                    ForEach(viewModel.usage.todayStats.topModelsSummary, id: \.name) { model in
+                    ForEach(currentStats.topModelsSummary, id: \.name) { model in
                         HStack(spacing: 3) {
                             Text(model.name)
                                 .font(.system(size: 9, weight: .medium))
@@ -322,6 +392,7 @@ public struct PopoverView: View {
         HStack {
             Menu {
                 Toggle("菜单栏显示百分比", isOn: $settings.showPercentage)
+                Toggle("配额达到 80% 时发送通知", isOn: $settings.enableQuotaNotification)
                 
                 if #available(macOS 13.0, *) {
                     Toggle("开机自动启动", isOn: $settings.launchAtLogin)
