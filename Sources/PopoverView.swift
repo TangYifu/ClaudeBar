@@ -512,10 +512,10 @@ public final class PopoverViewModel: ObservableObject {
     
     public init() {}
     
-    public func refresh(force: Bool = false, completion: (() -> Void)? = nil) {
+    public func refresh(force: Bool = false, includeTokenStats: Bool = true, completion: (() -> Void)? = nil) {
         guard !isLoading || force else { return }
         isLoading = true
-        ClaudeUsageService.shared.fetchUsage(force: force) { [weak self] newUsage in
+        ClaudeUsageService.shared.fetchUsage(force: force, includeTokenStats: includeTokenStats) { [weak self] newUsage in
             self?.usage = newUsage
             self?.isLoading = false
             completion?()

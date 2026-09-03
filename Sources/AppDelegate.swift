@@ -92,7 +92,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func showPopover(_ sender: NSStatusBarButton) {
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-        viewModel.refresh { [weak self] in
+        // Forced so an in-flight background refresh — which deliberately skips
+        // the project scan — cannot make the popover settle on stale token
+        // figures. Only this path and the explicit menu action ever scan, so
+        // the two cannot pile up the way a timer-driven scan could.
+        viewModel.refresh(force: true) { [weak self] in
             guard let self = self else { return }
             self.updateButtonTitle()
             self.settings.checkAndDeliverQuotaNotification(usage: self.viewModel.usage)
@@ -228,12 +232,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer?.invalidate()
         let interval = max(1, settings.refreshInterval) * 60
         refreshTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(interval), repeats: true) { [weak self] _ in
-            self?.refreshData()
+            // The menu bar title and the quota alerts only need the API figures.
+            // The project scan runs when the popover is actually opened.
+            self?.refreshData(includeTokenStats: false)
         }
     }
     
-    private func refreshData(force: Bool = false) {
-        viewModel.refresh(force: force) { [weak self] in
+    private func refreshData(force: Bool = false, includeTokenStats: Bool = true) {
+        viewModel.refresh(force: force, includeTokenStats: includeTokenStats) { [weak self] in
             guard let self = self else { return }
             self.updateButtonTitle()
             self.settings.checkAndDeliverQuotaNotification(usage: self.viewModel.usage)
