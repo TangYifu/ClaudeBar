@@ -64,13 +64,16 @@ public struct AccountInfo {
 // MARK: - Today Token Stats
 
 public struct TodayTokenStats {
-    public var totalTokens: Int = 0
     public var inputTokens: Int = 0
     public var outputTokens: Int = 0
     public var cacheCreationTokens: Int = 0
     public var cacheReadTokens: Int = 0
     public var messageCount: Int = 0
     public var tokensByModel: [String: Int] = [:]
+    
+    public var totalTokens: Int {
+        inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens
+    }
     
     public var totalFormatted: String {
         formatTokenNumber(totalTokens)
