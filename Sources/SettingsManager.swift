@@ -66,18 +66,21 @@ public final class SettingsManager: ObservableObject {
         let sevenDay = Int(round(usage.sevenDayUtilization))
         
         let lastNotified5h = UserDefaults.standard.integer(forKey: "lastNotified5h")
-        if fiveHour >= 80 && lastNotified5h < 80 {
-            sendNotification(
-                title: "Claude Code 配额预警 (5小时)",
-                body: "您的 5 小时会话配额已消耗 \(fiveHour)%，预计 \(usage.fiveHourCountdown) 重置。"
-            )
-            UserDefaults.standard.set(80, forKey: "lastNotified5h")
-        } else if fiveHour >= 95 && lastNotified5h < 95 {
+        // Check the highest threshold first. If usage jumps directly above 95%,
+        // deliver the urgent warning immediately instead of delaying it until
+        // the next refresh after an 80% notification.
+        if fiveHour >= 95 && lastNotified5h < 95 {
             sendNotification(
                 title: "Claude Code 配额即将耗尽 (5小时)",
                 body: "您的 5 小时会话配额已消耗 \(fiveHour)%，请注意用量节奏。"
             )
             UserDefaults.standard.set(95, forKey: "lastNotified5h")
+        } else if fiveHour >= 80 && lastNotified5h < 80 {
+            sendNotification(
+                title: "Claude Code 配额预警 (5小时)",
+                body: "您的 5 小时会话配额已消耗 \(fiveHour)%，预计 \(usage.fiveHourCountdown) 重置。"
+            )
+            UserDefaults.standard.set(80, forKey: "lastNotified5h")
         } else if fiveHour < 70 {
             UserDefaults.standard.set(0, forKey: "lastNotified5h")
         }
