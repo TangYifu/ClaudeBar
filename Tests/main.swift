@@ -161,6 +161,43 @@ private func runCacheHorizonTests() throws {
     expect(previousWeek[.thisWeek]?.modelCallsCount == 1, "a window reaching before the cache horizon must rebuild")
 }
 
+private func runMondayWeekTests() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeBarMonday-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let projects = root.appendingPathComponent("projects/demo")
+    try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+    let log = projects.appendingPathComponent("session.jsonl")
+    let cache = root.appendingPathComponent("cache/token.json")
+
+    // 每条事件的 output 取 2 的幂，使任何子集的合计唯一，从而能区分出
+    // 究竟哪几条被算了进去——只比对条数会被「起点早一天、终点早两天」
+    // 这类互相抵消的错误蒙混过去。usage() 的固定开销是 60，故合计 = 60 + output。
+    var initial = Data()
+    initial.append(jsonLine(usage("2026-08-30T12:00:00.000Z", output: 1)))    // 上周日，应排除 -> 61
+    initial.append(jsonLine(usage("2026-08-31T00:00:00.000Z", output: 2)))    // 周一零点，应包含 -> 62
+    initial.append(jsonLine(usage("2026-09-01T12:00:00.000Z", output: 4)))    // 周二，应包含 -> 64
+    initial.append(jsonLine(usage("2026-09-06T23:59:59.000Z", output: 8)))    // 本周日最后一秒，应包含 -> 68
+    initial.append(jsonLine(usage("2026-09-07T00:00:00.000Z", output: 16)))   // 下周一零点，应排除 -> 76
+    try initial.write(to: log)
+
+    // firstWeekday = 1 是 zh-Hans_TW 等区域的系统默认（周日起算）。扫描器必须
+    // 自己钉死周一，而不是听这个日历的。
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    calendar.firstWeekday = 1
+    let scanner = TokenStatsScanner(projectsDirectory: root.appendingPathComponent("projects"), cacheURL: cache, calendar: calendar) {
+        ISO8601DateFormatter().date(from: "2026-09-03T12:00:00Z")!
+    }
+
+    let stats = scanner.compute()
+    expect(stats[.thisWeek]?.modelCallsCount == 3,
+           "week must hold exactly the Monday, Tuesday and Sunday events")
+    expect(stats[.thisWeek]?.totalTokens == 62 + 64 + 68,
+           "week must run Monday 00:00 through Sunday 23:59:59 regardless of the region's first weekday")
+    expect(stats[.today]?.modelCallsCount == 0,
+           "an event later in the week must not leak into today")
+}
+
 private func runRetryAfterTests() {
     let now = Date(timeIntervalSince1970: 1_000)
     expect(RetryAfterParser.date(from: "120", now: now) == Date(timeIntervalSince1970: 1_120),
@@ -184,6 +221,7 @@ do {
     try runTokenScannerTests()
     try runStaleFileFastForwardTests()
     try runCacheHorizonTests()
+    try runMondayWeekTests()
     runRetryAfterTests()
 } catch {
     failures += 1

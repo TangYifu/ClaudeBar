@@ -70,8 +70,9 @@ public final class TokenStatsScanner {
         let currentDate = now()
         let startOfToday = calendar.startOfDay(for: currentDate)
         let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday) ?? startOfToday
-        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: currentDate)?.start ?? startOfToday
         let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? currentDate
+        let startOfWeek = startOfMondayWeek(containing: startOfToday)
+        let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) ?? endOfToday
 
         var cache = loadCache(horizon: startOfWeek)
         let discovered = discoverJSONLFiles()
@@ -92,17 +93,30 @@ public final class TokenStatsScanner {
         var week = PeriodTokenStats()
 
         for file in cache.files.values {
-            for event in file.events where event.timestamp >= startOfWeek && event.timestamp < endOfToday {
+            for event in file.events where event.timestamp >= startOfWeek && event.timestamp < endOfWeek {
                 accumulate(event, into: &week)
-                if event.timestamp >= startOfToday {
+                if event.timestamp >= startOfToday && event.timestamp < endOfToday {
                     accumulate(event, into: &today)
-                } else if event.timestamp >= startOfYesterday {
+                } else if event.timestamp >= startOfYesterday && event.timestamp < startOfToday {
                     accumulate(event, into: &yesterday)
                 }
             }
         }
 
         return [.today: today, .yesterday: yesterday, .thisWeek: week]
+    }
+
+    /// Monday 00:00 of the week containing `startOfDay`, giving the week span
+    /// Monday 00:00:00 through Sunday 23:59:59.
+    ///
+    /// The boundary is derived here rather than read from the calendar because
+    /// `Calendar.current` takes its first weekday from the system region — the
+    /// zh-Hans_TW region this runs under starts the week on Sunday — which would
+    /// otherwise make "本周" mean a different span on different machines.
+    private func startOfMondayWeek(containing startOfDay: Date) -> Date {
+        let weekday = calendar.component(.weekday, from: startOfDay)  // 1 = Sunday
+        let daysSinceMonday = (weekday + 5) % 7                       // Mon -> 0 ... Sun -> 6
+        return calendar.date(byAdding: .day, value: -daysSinceMonday, to: startOfDay) ?? startOfDay
     }
 
     private func discoverJSONLFiles() -> [DiscoveredFile] {
