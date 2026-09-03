@@ -188,23 +188,25 @@ public struct PopoverView: View {
                     .foregroundColor(viewModel.usage.todayStats.totalTokens > 0 ? .primary : .secondary)
             }
             
-            // Sub-metrics 3-column strict grid
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), alignment: .leading),
-                    GridItem(.flexible(), alignment: .leading),
-                    GridItem(.flexible(), alignment: .trailing)
-                ],
-                alignment: .leading,
-                spacing: 8
-            ) {
-                metricItem(label: "生成输出", value: viewModel.usage.todayStats.outputFormatted, alignment: .leading)
-                metricItem(label: "用户输入", value: viewModel.usage.todayStats.userInputFormatted, alignment: .leading)
-                metricItem(label: "缓存命中读取", value: viewModel.usage.todayStats.cacheReadFormatted, alignment: .trailing)
+            // Sub-metrics rows (3-way symmetric layout with equal gaps)
+            VStack(spacing: 8) {
+                HStack(spacing: 0) {
+                    metricItem(label: "生成输出", value: viewModel.usage.todayStats.outputFormatted, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    metricItem(label: "用户输入", value: viewModel.usage.todayStats.userInputFormatted, alignment: .center)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    metricItem(label: "缓存读取", value: viewModel.usage.todayStats.cacheReadFormatted, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
                 
-                metricItem(label: "缓存命中率", value: "\(viewModel.usage.todayStats.cacheEfficiencyPercent)%", alignment: .leading)
-                metricItem(label: "交互轮次", value: "\(viewModel.usage.todayStats.userPromptsCount)轮", alignment: .leading)
-                metricItem(label: "模型调用", value: "\(viewModel.usage.todayStats.modelCallsCount)次", alignment: .trailing)
+                HStack(spacing: 0) {
+                    metricItem(label: "缓存命中", value: "\(viewModel.usage.todayStats.cacheEfficiencyPercent)%", alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    metricItem(label: "交互轮次", value: "\(viewModel.usage.todayStats.userPromptsCount)轮", alignment: .center)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    metricItem(label: "模型调用", value: "\(viewModel.usage.todayStats.modelCallsCount)次", alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             }
             .padding(.top, 2)
             
