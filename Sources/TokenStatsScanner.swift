@@ -198,9 +198,14 @@ public final class TokenStatsScanner {
             }
         }
 
-        for range in lineRanges {
-            if let event = parseEvent(Data(buffer[range]), fileURL: fileURL) {
-                events.append(event)
+        // JSONSerialization hands back autoreleased Foundation objects. Without a
+        // pool per chunk they pile up until the scan is over, which dominates the
+        // process footprint far more than the read buffer does.
+        autoreleasepool {
+            for range in lineRanges {
+                if let event = parseEvent(Data(buffer[range]), fileURL: fileURL) {
+                    events.append(event)
+                }
             }
         }
         if lineStart > 0 {
