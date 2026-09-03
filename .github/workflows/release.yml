@@ -16,6 +16,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Run Unit Tests
+        run: ./Tests/run-tests.sh
+
       - name: Build Universal App Bundle (arm64 + x86_64)
         run: |
           chmod +x ./build.sh

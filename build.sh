@@ -15,6 +15,8 @@ mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 SOURCES=(
     "$PROJECT_DIR/Sources/Models.swift"
+    "$PROJECT_DIR/Sources/TokenStatsScanner.swift"
+    "$PROJECT_DIR/Sources/UsageCacheStore.swift"
     "$PROJECT_DIR/Sources/ClaudeUsageService.swift"
     "$PROJECT_DIR/Sources/SettingsManager.swift"
     "$PROJECT_DIR/Sources/PopoverView.swift"
@@ -58,6 +60,11 @@ chmod +x "$MACOS_DIR/$APP_NAME"
 
 echo "==> Copying resources & plist..."
 cp "$PROJECT_DIR/Info.plist" "$CONTENTS_DIR/Info.plist"
+GIT_COMMIT="$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if ! git -C "$PROJECT_DIR" diff --quiet -- 2>/dev/null; then
+    GIT_COMMIT="${GIT_COMMIT}-dirty"
+fi
+/usr/libexec/PlistBuddy -c "Set :ClaudeBarGitCommit $GIT_COMMIT" "$CONTENTS_DIR/Info.plist"
 cp "$PROJECT_DIR/Resources/"* "$RESOURCES_DIR/" 2>/dev/null || true
 
 echo "==> Ad-hoc signing app bundle..."

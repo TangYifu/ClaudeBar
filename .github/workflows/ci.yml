@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-and-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run unit tests
+        run: ./Tests/run-tests.sh
+
+      - name: Build Universal 2 app
+        run: ./build.sh --universal
+
+      - name: Verify app bundle
+        run: |
+          codesign --verify --deep --strict build/ClaudeBar.app
+          file build/ClaudeBar.app/Contents/MacOS/ClaudeBar | grep -q "universal binary"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" build/ClaudeBar.app/Contents/Info.plist | grep -q "1.2.0"

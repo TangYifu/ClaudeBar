@@ -132,6 +132,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(webItem)
         
         menu.addItem(NSMenuItem.separator())
+
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "--"
+        let commit = Bundle.main.object(forInfoDictionaryKey: "ClaudeBarGitCommit") as? String ?? "unknown"
+        let versionItem = NSMenuItem(title: "ClaudeBar v\(version) · \(commit)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+
+        menu.addItem(NSMenuItem.separator())
         
         let quitItem = NSMenuItem(title: "退出 ClaudeBar", action: #selector(contextQuit), keyEquivalent: "q")
         quitItem.target = self

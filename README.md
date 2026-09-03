@@ -2,7 +2,7 @@
 
 **ClaudeBar** 是一款专为 macOS 设计的极轻量原生菜单栏小工具，用于实时监控并展示 **Claude Code** 的当前订阅配额与重置时间。
 
-纯原生 Swift + SwiftUI 编写，内存仅占用 ~30MB，无需 Electron、Python 或 Node.js 等运行时依赖。
+纯原生 Swift + SwiftUI 编写，无需 Electron、Python 或 Node.js 等额外运行时，适合在菜单栏长期驻留。
 
 ## 📸 产品预览
 
@@ -28,11 +28,14 @@
     - **用户输入**：输入到模型的提示词与上下文 Token 数（如 `2.8M`）。
     - **缓存读取**：从 Prompt Caching 重复读取的 Token 数（如 `25.8M`）。
     - **缓存命中**：缓存读取占全部输入的比例（如 `94.5%`）。
-    - **交互轮次**：统计当天用户实际提问的交互轮数（如 `180轮`）。
+    - **交互轮次**：统计用户实际输入的提问轮数，并排除工具结果与系统注入消息（如 `34轮`）。
     - **模型调用**：统计大模型 API 响应与工具循环的总调用次数（如 `300次`）。
   - **主力模型分布**：展示当天主要调用的模型分布（如 `Opus 5`、`Sonnet 5`）。
+  - **增量统计缓存**：仅解析 JSONL 新增内容，避免聊天记录增长后反复全量扫描。
 - 🔔 **智能配额预警通知**：
-  - 5小时会话配额或7天配额达到 80%、95% 时触发 macOS 原生系统横幅通知，防止意外被限流。
+  - 5小时会话配额达到 80%/95%、7天配额达到 85% 时触发 macOS 原生系统横幅通知，防止意外被限流。
+- 🛡️ **可靠的离线与限流处理**：
+  - 持久化保存最后一次成功配额；遇到 HTTP 429 时遵循 `Retry-After`，退避期间直接展示缓存数据。
 - 🖥️ **全架构支持 (Universal 2)**：
   - 原生支持 Apple Silicon (M1/M2/M3/M4) 与 Intel 架构，最低支持 macOS 12.0+。
 - ⏳ **精确本地倒计时**：
@@ -80,7 +83,7 @@ git clone https://github.com/TangYifu/ClaudeBar.git
 cd ClaudeBar
 
 # 一键编译并安装到 /Applications/ClaudeBar.app
-./build.sh --install
+./build.sh --universal --install
 
 # 启动应用
 open /Applications/ClaudeBar.app

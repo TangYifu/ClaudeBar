@@ -30,6 +30,13 @@ public final class ClaudeUsageService: @unchecked Sendable {
     private let fetchLock = NSLock()
     private var isFetching = false
     private var lastSuccessfulUsage: FormattedUsage?
+    private var applicationSupportDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/ClaudeBar", isDirectory: true)
+    }
+    private lazy var usageCache = UsageCacheStore(
+        fileURL: applicationSupportDirectory.appendingPathComponent("usage-cache-v1.json")
+    )
     
     private init() {}
     
@@ -63,25 +70,47 @@ public final class ClaudeUsageService: @unchecked Sendable {
                 self.fetchLock.unlock()
                 DispatchQueue.main.async { completion(result) }
             }
+
+            if let cached = self.usageCache.load(),
+               let retryDate = cached.retryNotBefore,
+               retryDate > Date() {
+                let hint = UsageRequestError.http(status: 429, retryNotBefore: retryDate).localizedDescription
+                var formatted: FormattedUsage
+                if let response = cached.response {
+                    formatted = self.formatResponse(response, account: account, isOffline: true)
+                    formatted.lastUpdated = cached.savedAt
+                } else {
+                    formatted = self.fetchFromLocalCache(account: account, errorHint: hint)
+                }
+                formatted.statsByPeriod = statsByPeriod
+                formatted.errorMessage = hint
+                finish(formatted)
+                return
+            }
             
             // 1. Try fetching via API token
             if let token = self.fetchAccessTokenFromKeychain() {
                 self.fetchUsageFromAPI(token: token) { result in
                     switch result {
                     case .success(let response):
+                        self.usageCache.save(response: response)
                         var formatted = self.formatResponse(response, account: account, isOffline: false)
                         formatted.statsByPeriod = statsByPeriod
                         finish(formatted)
                     case .failure(let error):
                         print("API request failed: \(error.localizedDescription), falling back to local cache")
-                        var formatted = self.fetchFromLocalCache(account: account, errorHint: error.localizedDescription)
+                        if case UsageRequestError.http(let status, let retryDate) = error,
+                           status == 429, let retryDate {
+                            self.usageCache.setRetryNotBefore(retryDate)
+                        }
+                        var formatted = self.fetchBestFallback(account: account, errorHint: error.localizedDescription)
                         formatted.statsByPeriod = statsByPeriod
                         finish(formatted)
                     }
                 }
             } else {
                 print("Keychain token unavailable, falling back to local cache")
-                var formatted = self.fetchFromLocalCache(account: account, errorHint: "Keychain 凭据未就绪，使用本地缓存")
+                var formatted = self.fetchBestFallback(account: account, errorHint: "Keychain 凭据未就绪，使用本地缓存")
                 formatted.statsByPeriod = statsByPeriod
                 finish(formatted)
             }
@@ -138,8 +167,11 @@ public final class ClaudeUsageService: @unchecked Sendable {
             }
             
             if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                let msg = "HTTP \(http.statusCode)"
-                completion(.failure(NSError(domain: "ClaudeBar", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])))
+                let retryDate = http.statusCode == 429
+                    ? RetryAfterParser.date(from: http.value(forHTTPHeaderField: "Retry-After"))
+                        ?? Date().addingTimeInterval(60)
+                    : nil
+                completion(.failure(UsageRequestError.http(status: http.statusCode, retryNotBefore: retryDate)))
                 return
             }
             
@@ -158,6 +190,16 @@ public final class ClaudeUsageService: @unchecked Sendable {
     }
     
     // MARK: - Local Cache Fallback (~/.claude.json)
+
+    private func fetchBestFallback(account: AccountInfo, errorHint: String?) -> FormattedUsage {
+        if let cached = usageCache.load(), let response = cached.response {
+            var result = formatResponse(response, account: account, isOffline: true)
+            result.lastUpdated = cached.savedAt
+            result.errorMessage = errorHint
+            return result
+        }
+        return fetchFromLocalCache(account: account, errorHint: errorHint)
+    }
     
     private func fetchFromLocalCache(account: AccountInfo, errorHint: String?) -> FormattedUsage {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
@@ -192,6 +234,17 @@ public final class ClaudeUsageService: @unchecked Sendable {
     // MARK: - Multi-Period Token Stats Computation
     
     public func computeMultiPeriodTokenStats() -> [TimePeriod: PeriodTokenStats] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let scanner = TokenStatsScanner(
+            projectsDirectory: home.appendingPathComponent(".claude/projects"),
+            cacheURL: applicationSupportDirectory.appendingPathComponent("token-stats-cache-v1.json")
+        )
+        return scanner.compute()
+    }
+
+    // Kept temporarily as a reference for cache migrations. The active scanner
+    // above reads only appended bytes and persists its file offsets.
+    private func computeMultiPeriodTokenStatsLegacy() -> [TimePeriod: PeriodTokenStats] {
         var todayStats = PeriodTokenStats()
         var yesterdayStats = PeriodTokenStats()
         var weekStats = PeriodTokenStats()

@@ -63,7 +63,7 @@ public struct AccountInfo {
 
 // MARK: - Time Period
 
-public enum TimePeriod: String, CaseIterable, Identifiable {
+public enum TimePeriod: String, CaseIterable, Identifiable, Codable {
     case today = "今天"
     case yesterday = "昨天"
     case thisWeek = "本周"
@@ -73,7 +73,7 @@ public enum TimePeriod: String, CaseIterable, Identifiable {
 
 // MARK: - Period Token Stats
 
-public struct PeriodTokenStats {
+public struct PeriodTokenStats: Codable {
     public var inputTokens: Int = 0
     public var outputTokens: Int = 0
     public var cacheCreationTokens: Int = 0
