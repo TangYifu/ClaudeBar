@@ -37,6 +37,9 @@ public final class ClaudeUsageService: @unchecked Sendable {
     private lazy var usageCache = UsageCacheStore(
         fileURL: applicationSupportDirectory.appendingPathComponent("usage-cache-v1.json")
     )
+    private lazy var historyStore = UsageHistoryStore(
+        fileURL: applicationSupportDirectory.appendingPathComponent("usage-history-v1.json")
+    )
     
     private init() {}
     
@@ -473,46 +476,79 @@ public final class ClaudeUsageService: @unchecked Sendable {
     }
     
     // MARK: - Response Formatting
-    
+
     private func formatResponse(_ response: UsageResponse, account: AccountInfo, isOffline: Bool) -> FormattedUsage {
         var item = FormattedUsage()
         item.account = account
         item.isOffline = isOffline
         item.lastUpdated = Date()
-        
-        // 5-Hour Session
+
         if let five = response.five_hour {
             item.fiveHourUtilization = five.utilization ?? 0
-            if let resetsAtStr = five.resets_at,
-               let resetDate = parseDate(resetsAtStr) {
+            if let resetsAtStr = five.resets_at, let resetDate = parseDate(resetsAtStr) {
                 item.fiveHourResetDate = resetDate
                 item.fiveHourCountdown = formatCountdown(resetDate: resetDate, isShort: true)
             } else {
                 item.fiveHourCountdown = "无重置时间"
             }
         }
-        
-        // 7-Day Weekly
         if let seven = response.seven_day {
             item.sevenDayUtilization = seven.utilization ?? 0
-            if let resetsAtStr = seven.resets_at,
-               let resetDate = parseDate(resetsAtStr) {
+            if let resetsAtStr = seven.resets_at, let resetDate = parseDate(resetsAtStr) {
                 item.sevenDayResetDate = resetDate
                 item.sevenDayCountdown = formatCountdown(resetDate: resetDate, isShort: false)
             } else {
                 item.sevenDayCountdown = "无重置时间"
             }
         }
-        
-        // Extra Usage / Spend
         if let extra = response.extra_usage {
             item.extraUsageEnabled = extra.is_enabled ?? false
         }
         if let spend = response.spend, let used = spend.used {
             item.extraSpendFormatted = used.formatted
         }
-        
+
+        enrichWithHistory(&item, isOffline: isOffline)
         return item
+    }
+
+    private func enrichWithHistory(_ item: inout FormattedUsage, isOffline: Bool) {
+        let now = Date()
+        if !isOffline {
+            historyStore.record(fiveUtil: item.fiveHourUtilization, sevenUtil: item.sevenDayUtilization, fiveReset: item.fiveHourResetDate, sevenReset: item.sevenDayResetDate)
+        }
+        let fiveBurn = historyStore.fiveHourBurn(currentUtil: item.fiveHourUtilization, currentReset: item.fiveHourResetDate, now: now)
+        item.fiveHourBurnRate = fiveBurn.rate
+        item.fiveHourBurnDelta = fiveBurn.delta
+        item.fiveHourExhaustion = fiveBurn.exhaustion
+        let sevenBurn = historyStore.sevenDayBurn(currentUtil: item.sevenDayUtilization, currentReset: item.sevenDayResetDate, now: now)
+        item.sevenDayBurnRate = sevenBurn.rate
+        item.sevenDayBurnDelta = sevenBurn.delta
+        item.sevenDayExhaustion = sevenBurn.exhaustion
+
+        let fiveRemain = 100 - item.fiveHourUtilization
+        let sevenRemain = 100 - item.sevenDayUtilization
+        let fiveHoursLeft = item.fiveHourResetDate.map { max(0.1, $0.timeIntervalSince(now) / 3600) } ?? 5
+        let sevenHoursLeft = item.sevenDayResetDate.map { max(0.1, $0.timeIntervalSince(now) / 3600) } ?? (7 * 24)
+        let fivePressure = fiveRemain / fiveHoursLeft
+        let sevenPressure = sevenRemain / sevenHoursLeft
+        if fivePressure < sevenPressure {
+            item.tighterWindow = .fiveHour
+        } else if sevenPressure < fivePressure {
+            item.tighterWindow = .sevenDay
+        }
+
+        if let ex = item.fiveHourExhaustion, let reset = item.fiveHourResetDate, ex < reset, item.fiveHourUtilization >= 50 {
+            item.adviceText = "按此速度将在重置前耗尽，建议切小模型"
+        } else if let ex = item.sevenDayExhaustion, let reset = item.sevenDayResetDate, ex < reset, item.sevenDayUtilization >= 50 {
+            item.adviceText = "按此速度将在周重置前耗尽，今日尽量用 Sonnet"
+        } else if item.tighterWindow == .fiveHour, item.fiveHourUtilization >= 75 {
+            item.adviceText = "5小时更紧，暂停大文件上下文"
+        } else if item.tighterWindow == .sevenDay, item.sevenDayUtilization >= 65 {
+            item.adviceText = "7天更紧，今日尽量用 Sonnet"
+        } else if item.tighterWindow != nil {
+            item.adviceText = item.tighterWindow == .fiveHour ? "当前 5小时为瓶颈" : "当前 7天为瓶颈"
+        }
     }
     
     private func parseDate(_ str: String) -> Date? {

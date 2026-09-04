@@ -73,37 +73,40 @@ public final class TokenStatsScanner {
         let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? currentDate
         let startOfWeek = startOfMondayWeek(containing: startOfToday)
         let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) ?? endOfToday
+        let startOfMonth = calendar.dateInterval(of: .month, for: currentDate)?.start ?? startOfToday
+        let startOfLast30 = calendar.date(byAdding: .day, value: -30, to: startOfToday) ?? startOfToday
+        let earliest = [startOfWeek, startOfMonth, startOfLast30].min() ?? startOfWeek
 
-        var cache = loadCache(horizon: startOfWeek)
+        var cache = loadCache(horizon: earliest)
         let discovered = discoverJSONLFiles()
-        // Only entries whose file is gone from disk are evicted. Offsets for
-        // files that fall outside the current window stay valid, so resuming an
-        // old session never forces a full re-read of its log.
         let existingPaths = Set(discovered.map(\.url.path))
         cache.files = cache.files.filter { existingPaths.contains($0.key) }
 
         for file in discovered {
-            updateCache(for: file, earliestDate: startOfWeek, cache: &cache)
+            updateCache(for: file, earliestDate: earliest, cache: &cache)
         }
-        cache.horizon = startOfWeek
+        cache.horizon = earliest
         saveCache(cache)
 
         var today = PeriodTokenStats()
         var yesterday = PeriodTokenStats()
         var week = PeriodTokenStats()
+        var month = PeriodTokenStats()
+        var last30 = PeriodTokenStats()
 
         for file in cache.files.values {
-            for event in file.events where event.timestamp >= startOfWeek && event.timestamp < endOfWeek {
-                accumulate(event, into: &week)
-                if event.timestamp >= startOfToday && event.timestamp < endOfToday {
-                    accumulate(event, into: &today)
-                } else if event.timestamp >= startOfYesterday && event.timestamp < startOfToday {
-                    accumulate(event, into: &yesterday)
-                }
+            for event in file.events {
+                let t = event.timestamp
+                if t >= startOfLast30 && t < endOfToday { accumulate(event, into: &last30) }
+                if t >= startOfMonth && t < endOfToday { accumulate(event, into: &month) }
+                if t >= startOfWeek && t < endOfWeek { accumulate(event, into: &week) }
+                if t >= startOfToday && t < endOfToday { accumulate(event, into: &today) }
+                else if t >= startOfYesterday && t < startOfToday { accumulate(event, into: &yesterday) }
             }
         }
 
-        return [.today: today, .yesterday: yesterday, .thisWeek: week]
+        let result: [TimePeriod: PeriodTokenStats] = [.today: today, .yesterday: yesterday, .thisWeek: week, .thisMonth: month, .last30Days: last30]
+        return result
     }
 
     /// Monday 00:00 of the week containing `startOfDay`, giving the week span

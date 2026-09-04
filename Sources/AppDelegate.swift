@@ -49,7 +49,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func loadedPopover() -> NSPopover {
         if let existing = popover { return existing }
         let created = NSPopover()
-        created.contentSize = NSSize(width: 320, height: 535)
+        created.contentSize = NSSize(width: 340, height: 620)
         created.behavior = .transient
         created.animates = true
         created.contentViewController = NSHostingController(rootView: PopoverView(viewModel: viewModel))

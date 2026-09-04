@@ -45,6 +45,19 @@ public final class SettingsManager: ObservableObject {
         }
     }
 
+    @Published public var threshold5hWarning: Int {
+        didSet { UserDefaults.standard.set(threshold5hWarning, forKey: "threshold5hWarning") }
+    }
+    @Published public var threshold5hCritical: Int {
+        didSet { UserDefaults.standard.set(threshold5hCritical, forKey: "threshold5hCritical") }
+    }
+    @Published public var threshold7dWarning: Int {
+        didSet { UserDefaults.standard.set(threshold7dWarning, forKey: "threshold7dWarning") }
+    }
+    @Published public var notifyOnReset: Bool {
+        didSet { UserDefaults.standard.set(notifyOnReset, forKey: "notifyOnReset") }
+    }
+
     /// On by default where the hardware has a notch. Switching it off tears the
     /// window down again, which matters because that window lives for the whole
     /// session and costs roughly as much memory as the rest of the app.
@@ -54,11 +67,15 @@ public final class SettingsManager: ObservableObject {
             NotificationCenter.default.post(name: .settingsChanged, object: nil)
         }
     }
-    
+
     private init() {
         self.showPercentage = UserDefaults.standard.object(forKey: "showPercentage") as? Bool ?? true
         self.refreshInterval = UserDefaults.standard.object(forKey: "refreshInterval") as? Int ?? 3
         self.enableQuotaNotification = UserDefaults.standard.object(forKey: "enableQuotaNotification") as? Bool ?? true
+        self.threshold5hWarning = UserDefaults.standard.object(forKey: "threshold5hWarning") as? Int ?? 80
+        self.threshold5hCritical = UserDefaults.standard.object(forKey: "threshold5hCritical") as? Int ?? 95
+        self.threshold7dWarning = UserDefaults.standard.object(forKey: "threshold7dWarning") as? Int ?? 85
+        self.notifyOnReset = UserDefaults.standard.object(forKey: "notifyOnReset") as? Bool ?? true
         self.showNotchIsland = UserDefaults.standard.object(forKey: "showNotchIsland") as? Bool ?? true
         
         if #available(macOS 13.0, *) {
@@ -69,43 +86,48 @@ public final class SettingsManager: ObservableObject {
     }
     
     // MARK: - Quota Threshold Notifications
-    
+
     public func checkAndDeliverQuotaNotification(usage: FormattedUsage) {
+        if notifyOnReset { checkResetNotification(usage: usage) }
         guard enableQuotaNotification else { return }
-        
+
         let fiveHour = Int(round(usage.fiveHourUtilization))
         let sevenDay = Int(round(usage.sevenDayUtilization))
-        
+        let crit = max(1, min(100, threshold5hCritical))
+        let warn = max(1, min(crit - 1, threshold5hWarning))
+        let sevenWarn = max(1, min(100, threshold7dWarning))
+
         let lastNotified5h = UserDefaults.standard.integer(forKey: "lastNotified5h")
-        // Check the highest threshold first. If usage jumps directly above 95%,
-        // deliver the urgent warning immediately instead of delaying it until
-        // the next refresh after an 80% notification.
-        if fiveHour >= 95 && lastNotified5h < 95 {
-            sendNotification(
-                title: "Claude Code 配额即将耗尽 (5小时)",
-                body: "您的 5 小时会话配额已消耗 \(fiveHour)%，请注意用量节奏。"
-            )
-            UserDefaults.standard.set(95, forKey: "lastNotified5h")
-        } else if fiveHour >= 80 && lastNotified5h < 80 {
-            sendNotification(
-                title: "Claude Code 配额预警 (5小时)",
-                body: "您的 5 小时会话配额已消耗 \(fiveHour)%，预计 \(usage.fiveHourCountdown) 重置。"
-            )
-            UserDefaults.standard.set(80, forKey: "lastNotified5h")
-        } else if fiveHour < 70 {
+        if fiveHour >= crit && lastNotified5h < crit {
+            sendNotification(title: "Claude Code 配额即将耗尽 (5小时)", body: "您的 5 小时会话配额已消耗 \(fiveHour)%，请注意用量节奏。")
+            UserDefaults.standard.set(crit, forKey: "lastNotified5h")
+        } else if fiveHour >= warn && lastNotified5h < warn {
+            sendNotification(title: "Claude Code 配额预警 (5小时)", body: "您的 5 小时会话配额已消耗 \(fiveHour)%，预计 \(usage.fiveHourCountdown) 重置。")
+            UserDefaults.standard.set(warn, forKey: "lastNotified5h")
+        } else if fiveHour < warn - 10 {
             UserDefaults.standard.set(0, forKey: "lastNotified5h")
         }
-        
+
         let lastNotified7d = UserDefaults.standard.integer(forKey: "lastNotified7d")
-        if sevenDay >= 85 && lastNotified7d < 85 {
-            sendNotification(
-                title: "Claude Code 周度配额预警 (7天)",
-                body: "您的 7 天周度配额已消耗 \(sevenDay)%，预计 \(usage.sevenDayCountdown) 重置。"
-            )
-            UserDefaults.standard.set(85, forKey: "lastNotified7d")
-        } else if sevenDay < 75 {
+        if sevenDay >= sevenWarn && lastNotified7d < sevenWarn {
+            sendNotification(title: "Claude Code 周度配额预警 (7天)", body: "您的 7 天周度配额已消耗 \(sevenDay)%，预计 \(usage.sevenDayCountdown) 重置。")
+            UserDefaults.standard.set(sevenWarn, forKey: "lastNotified7d")
+        } else if sevenDay < sevenWarn - 10 {
             UserDefaults.standard.set(0, forKey: "lastNotified7d")
         }
+    }
+
+    private func checkResetNotification(usage: FormattedUsage) {
+        let prevFive = UserDefaults.standard.object(forKey: "prevFiveReset") as? Date
+        let prevSeven = UserDefaults.standard.object(forKey: "prevSevenReset") as? Date
+        if let cur = usage.fiveHourResetDate, let prev = prevFive, cur > prev {
+            sendNotification(title: "Claude Code 5小时配额已重置", body: "新的 5 小时会话已开始。")
+        }
+        if let cur = usage.sevenDayResetDate, let prev = prevSeven, cur > prev {
+            sendNotification(title: "Claude Code 7天配额已重置", body: "新的 7 天周期已开始。")
+        }
+        if let cur = usage.fiveHourResetDate { UserDefaults.standard.set(cur, forKey: "prevFiveReset") }
+        if let cur = usage.sevenDayResetDate { UserDefaults.standard.set(cur, forKey: "prevSevenReset") }
     }
     
     private func sendNotification(title: String, body: String) {

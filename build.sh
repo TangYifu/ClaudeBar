@@ -17,6 +17,7 @@ SOURCES=(
     "$PROJECT_DIR/Sources/Models.swift"
     "$PROJECT_DIR/Sources/TokenStatsScanner.swift"
     "$PROJECT_DIR/Sources/UsageCacheStore.swift"
+    "$PROJECT_DIR/Sources/UsageHistoryStore.swift"
     "$PROJECT_DIR/Sources/ClaudeUsageService.swift"
     "$PROJECT_DIR/Sources/SettingsManager.swift"
     "$PROJECT_DIR/Sources/PopoverView.swift"

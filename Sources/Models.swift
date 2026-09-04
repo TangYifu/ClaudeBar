@@ -67,7 +67,9 @@ public enum TimePeriod: String, CaseIterable, Identifiable, Codable {
     case today = "今天"
     case yesterday = "昨天"
     case thisWeek = "本周"
-    
+    case thisMonth = "本月"
+    case last30Days = "近30天"
+
     public var id: String { rawValue }
 }
 
@@ -135,7 +137,7 @@ public struct PeriodTokenStats: Codable {
     }
     
     public var topProjectsSummary: [(name: String, formatted: String, percent: Int)] {
-        let sorted = tokensByProject.sorted { $0.value > $1.value }.prefix(3)
+        let sorted = tokensByProject.sorted { $0.value > $1.value }.prefix(8)
         let total = totalTokens > 0 ? totalTokens : 1
         return sorted.map { (proj, count) in
             let pct = Int(round(Double(count) / Double(total) * 100.0))
@@ -162,14 +164,24 @@ public struct FormattedUsage {
     public var fiveHourUtilization: Double = 0
     public var fiveHourResetDate: Date?
     public var fiveHourCountdown: String = "--"
-    
+    public var fiveHourBurnRate: Double? = nil
+    public var fiveHourBurnDelta: Double? = nil
+    public var fiveHourExhaustion: Date? = nil
+
     public var sevenDayUtilization: Double = 0
     public var sevenDayResetDate: Date?
     public var sevenDayCountdown: String = "--"
-    
+    public var sevenDayBurnRate: Double? = nil
+    public var sevenDayBurnDelta: Double? = nil
+    public var sevenDayExhaustion: Date? = nil
+
+    public enum TighterWindow: String { case fiveHour = "5小时"; case sevenDay = "7天" }
+    public var tighterWindow: TighterWindow? = nil
+    public var adviceText: String? = nil
+
     public var extraUsageEnabled: Bool = false
     public var extraSpendFormatted: String = "--"
-    
+
     public var account: AccountInfo = AccountInfo()
     public var statsByPeriod: [TimePeriod: PeriodTokenStats] = [:]
     

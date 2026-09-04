@@ -100,7 +100,7 @@ private func runStaleFileFastForwardTests() throws {
     // last written before the window opened. Skipping it is the whole point:
     // it is what stops a resumed old session from forcing a full re-read.
     try jsonLine(usage("2026-09-03T01:00:00.000Z", output: 40)).write(to: log)
-    let stale = ISO8601DateFormatter().date(from: "2026-08-20T00:00:00Z")!
+    let stale = ISO8601DateFormatter().date(from: "2026-07-01T00:00:00Z")!
     try FileManager.default.setAttributes([.modificationDate: stale], ofItemAtPath: log.path)
 
     var calendar = Calendar(identifier: .gregorian)
