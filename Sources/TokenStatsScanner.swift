@@ -1,7 +1,7 @@
 import Foundation
 
 public final class TokenStatsScanner {
-    private struct CachedEvent: Codable {
+    private struct CachedEvent {
         let timestamp: Date
         let inputTokens: Int
         let outputTokens: Int
@@ -12,10 +12,30 @@ public final class TokenStatsScanner {
         let isUserPrompt: Bool
     }
 
+    /// One day's worth of a single log, folded at ingest time.
+    ///
+    /// Every period this reports on starts and ends on a day boundary, so nothing
+    /// needs the individual events once they have been counted — and keeping them
+    /// made the cache grow with the width of the widest window, which is then
+    /// decoded and re-encoded on every refresh.
+    private struct DayBucket: Codable {
+        var day: Date
+        var inputTokens = 0
+        var outputTokens = 0
+        var cacheCreationTokens = 0
+        var cacheReadTokens = 0
+        var modelCalls = 0
+        var userPrompts = 0
+        var tokensByModel: [String: Int] = [:]
+        var tokensByProject: [String: Int] = [:]
+
+        init(day: Date) { self.day = day }
+    }
+
     private struct CachedFile: Codable {
         var offset: UInt64
         var trailingBytes: Data
-        var events: [CachedEvent]
+        var days: [String: DayBucket]
     }
 
     private struct ScanCache: Codable {
@@ -26,7 +46,7 @@ public final class TokenStatsScanner {
         var horizon: Date?
         var files: [String: CachedFile] = [:]
 
-        static let currentVersion = 2
+        static let currentVersion = 3
     }
 
     private struct DiscoveredFile {
@@ -45,6 +65,7 @@ public final class TokenStatsScanner {
     private let now: () -> Date
     private let isoWithFractional: ISO8601DateFormatter
     private let isoStandard: ISO8601DateFormatter
+    private let dayFormatter: DateFormatter
 
     public init(
         projectsDirectory: URL,
@@ -64,6 +85,13 @@ public final class TokenStatsScanner {
         let standard = ISO8601DateFormatter()
         standard.formatOptions = [.withInternetDateTime]
         self.isoStandard = standard
+
+        let day = DateFormatter()
+        day.calendar = calendar
+        day.timeZone = calendar.timeZone
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.dateFormat = "yyyy-MM-dd"
+        self.dayFormatter = day
     }
 
     public func compute() -> [TimePeriod: PeriodTokenStats] {
@@ -94,13 +122,15 @@ public final class TokenStatsScanner {
         var week = PeriodTokenStats()
         var month = PeriodTokenStats()
 
+        // Every boundary below is day-aligned, so summing whole day buckets is
+        // exactly equivalent to walking the individual events.
         for file in cache.files.values {
-            for event in file.events {
-                let t = event.timestamp
-                if t >= startOfMonth && t < endOfToday { accumulate(event, into: &month) }
-                if t >= startOfWeek && t < endOfWeek { accumulate(event, into: &week) }
-                if t >= startOfToday && t < endOfToday { accumulate(event, into: &today) }
-                else if t >= startOfYesterday && t < startOfToday { accumulate(event, into: &yesterday) }
+            for bucket in file.days.values {
+                let d = bucket.day
+                if d >= startOfMonth && d < endOfToday { add(bucket, to: &month) }
+                if d >= startOfWeek && d < endOfWeek { add(bucket, to: &week) }
+                if d >= startOfToday && d < endOfToday { add(bucket, to: &today) }
+                else if d >= startOfYesterday && d < startOfToday { add(bucket, to: &yesterday) }
             }
         }
 
@@ -141,11 +171,11 @@ public final class TokenStatsScanner {
 
     private func updateCache(for file: DiscoveredFile, earliestDate: Date, cache: inout ScanCache) {
         let path = file.url.path
-        var state = cache.files[path] ?? CachedFile(offset: 0, trailingBytes: Data(), events: [])
+        var state = cache.files[path] ?? CachedFile(offset: 0, trailingBytes: Data(), days: [:])
         if file.size < state.offset {
-            state = CachedFile(offset: 0, trailingBytes: Data(), events: [])
+            state = CachedFile(offset: 0, trailingBytes: Data(), days: [:])
         }
-        state.events.removeAll { $0.timestamp < earliestDate }
+        state.days = state.days.filter { $0.value.day >= earliestDate }
 
         // Every line in a log last written before the window opened predates the
         // window as well, so none of it can contribute. Skip past those bytes
@@ -173,14 +203,14 @@ public final class TokenStatsScanner {
             while let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty {
                 consumed += UInt64(chunk.count)
                 pending.append(contentsOf: chunk)
-                consumeCompleteLines(from: &pending, fileURL: file.url, into: &state.events)
+                consumeCompleteLines(from: &pending, fileURL: file.url, into: &state.days, earliestDate: earliestDate)
             }
 
             // Whatever trails the final newline is either a complete line on a
             // file that does not end in one, or a partial write to resume from.
             if !pending.isEmpty {
                 if let event = parseEvent(Data(pending), fileURL: file.url) {
-                    state.events.append(event)
+                    fold(event, into: &state.days, earliestDate: earliestDate)
                 } else {
                     state.trailingBytes = Data(pending)
                 }
@@ -192,7 +222,7 @@ public final class TokenStatsScanner {
         cache.files[path] = state
     }
 
-    private func consumeCompleteLines(from buffer: inout [UInt8], fileURL: URL, into events: inout [CachedEvent]) {
+    private func consumeCompleteLines(from buffer: inout [UInt8], fileURL: URL, into days: inout [String: DayBucket], earliestDate: Date) {
         var lineRanges: [Range<Int>] = []
         var lineStart = 0
 
@@ -219,7 +249,7 @@ public final class TokenStatsScanner {
         autoreleasepool {
             for range in lineRanges {
                 if let event = parseEvent(Data(buffer[range]), fileURL: fileURL) {
-                    events.append(event)
+                    fold(event, into: &days, earliestDate: earliestDate)
                 }
             }
         }
@@ -306,17 +336,39 @@ public final class TokenStatsScanner {
         return !generated.contains { trimmed.hasPrefix($0) }
     }
 
-    private func accumulate(_ event: CachedEvent, into stats: inout PeriodTokenStats) {
-        if event.isUserPrompt { stats.userPromptsCount += 1 }
+    /// Folds one event into its day. The order here mirrors the per-event
+    /// accounting it replaces: a user prompt is counted even when it carries no
+    /// tokens, while the token fields, the call count and both breakdowns are
+    /// only touched once there is something to add.
+    private func fold(_ event: CachedEvent, into days: inout [String: DayBucket], earliestDate: Date) {
+        let day = calendar.startOfDay(for: event.timestamp)
+        guard day >= earliestDate else { return }
+        let key = dayFormatter.string(from: event.timestamp)
+        var bucket = days[key] ?? DayBucket(day: day)
+
+        if event.isUserPrompt { bucket.userPrompts += 1 }
         let total = event.inputTokens + event.outputTokens + event.cacheCreationTokens + event.cacheReadTokens
-        guard total > 0 else { return }
-        stats.inputTokens += event.inputTokens
-        stats.outputTokens += event.outputTokens
-        stats.cacheCreationTokens += event.cacheCreationTokens
-        stats.cacheReadTokens += event.cacheReadTokens
-        stats.modelCallsCount += 1
-        stats.tokensByModel[event.model, default: 0] += total
-        stats.tokensByProject[event.project, default: 0] += total
+        if total > 0 {
+            bucket.inputTokens += event.inputTokens
+            bucket.outputTokens += event.outputTokens
+            bucket.cacheCreationTokens += event.cacheCreationTokens
+            bucket.cacheReadTokens += event.cacheReadTokens
+            bucket.modelCalls += 1
+            bucket.tokensByModel[event.model, default: 0] += total
+            bucket.tokensByProject[event.project, default: 0] += total
+        }
+        days[key] = bucket
+    }
+
+    private func add(_ bucket: DayBucket, to stats: inout PeriodTokenStats) {
+        stats.userPromptsCount += bucket.userPrompts
+        stats.inputTokens += bucket.inputTokens
+        stats.outputTokens += bucket.outputTokens
+        stats.cacheCreationTokens += bucket.cacheCreationTokens
+        stats.cacheReadTokens += bucket.cacheReadTokens
+        stats.modelCallsCount += bucket.modelCalls
+        for (model, count) in bucket.tokensByModel { stats.tokensByModel[model, default: 0] += count }
+        for (proj, count) in bucket.tokensByProject { stats.tokensByProject[proj, default: 0] += count }
     }
 
     private func loadCache(horizon: Date) -> ScanCache {
