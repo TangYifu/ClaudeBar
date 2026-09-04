@@ -1,5 +1,13 @@
 import AppKit
 
+/// Resolved from this file's own location so the script works from any checkout.
+/// It previously carried an absolute path into one developer's home directory,
+/// which had already gone stale when the repository moved.
+let resourcesDirectory = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("Resources", isDirectory: true)
+
+
 // Render Claude Code app icon following macOS squircle design guidelines
 func generateAppIcon(outputPath: String) {
     let canvasSize: CGFloat = 1024
@@ -54,7 +62,7 @@ func generateAppIcon(outputPath: String) {
     highlightRect.fill()
     
     // 3. Draw Claude Code Pixel Mascot in Center
-    let svgPath = "/Users/tangyifu/.gemini/antigravity/scratch/ClaudeBar/Resources/claudecode-color.svg"
+    let svgPath = resourcesDirectory.appendingPathComponent("claudecode-color.svg").path
     if let svgContent = try? String(contentsOfFile: svgPath) {
         let modifiedSvg = svgContent
             .replacingOccurrences(of: "width=\"1em\"", with: "width=\"1024\"")
@@ -93,4 +101,4 @@ func generateAppIcon(outputPath: String) {
     }
 }
 
-generateAppIcon(outputPath: "/Users/tangyifu/.gemini/antigravity/scratch/ClaudeBar/Resources/ClaudeCodeAppIcon_1024.png")
+generateAppIcon(outputPath: resourcesDirectory.appendingPathComponent("ClaudeAppIcon.png").path)

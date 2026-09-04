@@ -236,6 +236,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(interval), repeats: true) { [weak self] _ in
             self?.refreshData()
         }
+        // Nothing here needs to fire on time to the second, so let the system
+        // coalesce this wake-up with others instead of waking the CPU alone.
+        refreshTimer?.tolerance = 30
     }
     
     private func refreshData(force: Bool = false) {
