@@ -74,8 +74,9 @@ public final class TokenStatsScanner {
         let startOfWeek = startOfMondayWeek(containing: startOfToday)
         let endOfWeek = calendar.date(byAdding: .day, value: 7, to: startOfWeek) ?? endOfToday
         let startOfMonth = calendar.dateInterval(of: .month, for: currentDate)?.start ?? startOfToday
-        let startOfLast30 = calendar.date(byAdding: .day, value: -30, to: startOfToday) ?? startOfToday
-        let earliest = [startOfWeek, startOfMonth, startOfLast30].min() ?? startOfWeek
+        // Events are retained back to whichever window reaches furthest, so this
+        // bound is what the cache size and the cold-scan cost track.
+        let earliest = min(startOfWeek, startOfMonth)
 
         var cache = loadCache(horizon: earliest)
         let discovered = discoverJSONLFiles()
@@ -92,12 +93,10 @@ public final class TokenStatsScanner {
         var yesterday = PeriodTokenStats()
         var week = PeriodTokenStats()
         var month = PeriodTokenStats()
-        var last30 = PeriodTokenStats()
 
         for file in cache.files.values {
             for event in file.events {
                 let t = event.timestamp
-                if t >= startOfLast30 && t < endOfToday { accumulate(event, into: &last30) }
                 if t >= startOfMonth && t < endOfToday { accumulate(event, into: &month) }
                 if t >= startOfWeek && t < endOfWeek { accumulate(event, into: &week) }
                 if t >= startOfToday && t < endOfToday { accumulate(event, into: &today) }
@@ -105,8 +104,7 @@ public final class TokenStatsScanner {
             }
         }
 
-        let result: [TimePeriod: PeriodTokenStats] = [.today: today, .yesterday: yesterday, .thisWeek: week, .thisMonth: month, .last30Days: last30]
-        return result
+        return [.today: today, .yesterday: yesterday, .thisWeek: week, .thisMonth: month]
     }
 
     /// Monday 00:00 of the week containing `startOfDay`, giving the week span

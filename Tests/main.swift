@@ -100,7 +100,7 @@ private func runStaleFileFastForwardTests() throws {
     // last written before the window opened. Skipping it is the whole point:
     // it is what stops a resumed old session from forcing a full re-read.
     try jsonLine(usage("2026-09-03T01:00:00.000Z", output: 40)).write(to: log)
-    let stale = ISO8601DateFormatter().date(from: "2026-07-01T00:00:00Z")!
+    let stale = ISO8601DateFormatter().date(from: "2026-08-20T00:00:00Z")!
     try FileManager.default.setAttributes([.modificationDate: stale], ofItemAtPath: log.path)
 
     var calendar = Calendar(identifier: .gregorian)
@@ -198,6 +198,28 @@ private func runMondayWeekTests() throws {
            "an event later in the week must not leak into today")
 }
 
+private func runQuotaWindowTests() {
+    let base = ISO8601DateFormatter().date(from: "2026-09-04T05:59:59Z")!
+
+    // 实测到的真实噪声：同一响应内 5 小时与 7 天窗口的微秒数相差数十微秒，
+    // 换一个响应两者又一起变化——亚秒部分是服务端生成响应的时刻，与窗口无关。
+    expect(!isNewQuotaWindow(previous: base.addingTimeInterval(0.721907),
+                             current: base.addingTimeInterval(0.960867)),
+           "sub-second jitter on the same window must not read as a reset")
+    expect(!isNewQuotaWindow(previous: base.addingTimeInterval(0.960867),
+                             current: base.addingTimeInterval(0.721907)),
+           "jitter in the other direction must not read as a reset either")
+
+    expect(!isNewQuotaWindow(previous: base, current: base.addingTimeInterval(59)),
+           "a move inside the tolerance is still the same window")
+    expect(isNewQuotaWindow(previous: base, current: base.addingTimeInterval(5 * 3600)),
+           "the next five-hour window must be reported")
+    expect(!isNewQuotaWindow(previous: nil, current: base),
+           "with no baseline there is nothing to compare and nothing to report")
+    expect(!isNewQuotaWindow(previous: base, current: nil),
+           "a missing reset date must not report a reset")
+}
+
 private func runRetryAfterTests() {
     let now = Date(timeIntervalSince1970: 1_000)
     expect(RetryAfterParser.date(from: "120", now: now) == Date(timeIntervalSince1970: 1_120),
@@ -222,6 +244,7 @@ do {
     try runStaleFileFastForwardTests()
     try runCacheHorizonTests()
     try runMondayWeekTests()
+    runQuotaWindowTests()
     runRetryAfterTests()
 } catch {
     failures += 1

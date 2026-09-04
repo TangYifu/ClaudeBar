@@ -514,17 +514,22 @@ public final class ClaudeUsageService: @unchecked Sendable {
 
     private func enrichWithHistory(_ item: inout FormattedUsage, isOffline: Bool) {
         let now = Date()
-        if !isOffline {
-            historyStore.record(fiveUtil: item.fiveHourUtilization, sevenUtil: item.sevenDayUtilization, fiveReset: item.fiveHourResetDate, sevenReset: item.sevenDayResetDate)
-        }
-        let fiveBurn = historyStore.fiveHourBurn(currentUtil: item.fiveHourUtilization, currentReset: item.fiveHourResetDate, now: now)
-        item.fiveHourBurnRate = fiveBurn.rate
-        item.fiveHourBurnDelta = fiveBurn.delta
-        item.fiveHourExhaustion = fiveBurn.exhaustion
-        let sevenBurn = historyStore.sevenDayBurn(currentUtil: item.sevenDayUtilization, currentReset: item.sevenDayResetDate, now: now)
-        item.sevenDayBurnRate = sevenBurn.rate
-        item.sevenDayBurnDelta = sevenBurn.delta
-        item.sevenDayExhaustion = sevenBurn.exhaustion
+        // One load and at most one save per refresh; offline readings come from a
+        // cache and must not be written back into the series as fresh samples.
+        let burn = historyStore.update(
+            fiveUtil: item.fiveHourUtilization,
+            sevenUtil: item.sevenDayUtilization,
+            fiveReset: item.fiveHourResetDate,
+            sevenReset: item.sevenDayResetDate,
+            record: !isOffline,
+            now: now
+        )
+        item.fiveHourBurnRate = burn.five.rate
+        item.fiveHourBurnDelta = burn.five.delta
+        item.fiveHourExhaustion = burn.five.exhaustion
+        item.sevenDayBurnRate = burn.seven.rate
+        item.sevenDayBurnDelta = burn.seven.delta
+        item.sevenDayExhaustion = burn.seven.exhaustion
 
         let fiveRemain = 100 - item.fiveHourUtilization
         let sevenRemain = 100 - item.sevenDayUtilization

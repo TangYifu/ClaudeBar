@@ -68,7 +68,6 @@ public enum TimePeriod: String, CaseIterable, Identifiable, Codable {
     case yesterday = "昨天"
     case thisWeek = "本周"
     case thisMonth = "本月"
-    case last30Days = "近30天"
 
     public var id: String { rawValue }
 }
@@ -157,6 +156,20 @@ public struct PeriodTokenStats: Codable {
 }
 
 public typealias TodayTokenStats = PeriodTokenStats
+
+// MARK: - Quota Window Comparison
+
+/// Whether `current` names a genuinely later quota window than `previous`.
+///
+/// The API stamps `resets_at` with the instant it served the request, so its
+/// sub-second part differs on every response for one and the same window — in a
+/// single payload the five-hour and seven-day windows come back tens of
+/// microseconds apart, and the next payload moves both again. Comparing the
+/// dates strictly therefore reports a reset on roughly every other refresh.
+public func isNewQuotaWindow(previous: Date?, current: Date?, tolerance: TimeInterval = 60) -> Bool {
+    guard let previous = previous, let current = current else { return false }
+    return current.timeIntervalSince(previous) > tolerance
+}
 
 // MARK: - Formatted Usage View Model
 

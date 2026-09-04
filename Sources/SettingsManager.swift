@@ -118,12 +118,17 @@ public final class SettingsManager: ObservableObject {
     }
 
     private func checkResetNotification(usage: FormattedUsage) {
+        // A cached reading cannot evidence a reset, and ~/.claude.json's copy can
+        // lag the API by a day — letting it write the baseline would make the next
+        // live reading look like a reset.
+        guard !usage.isOffline else { return }
+
         let prevFive = UserDefaults.standard.object(forKey: "prevFiveReset") as? Date
         let prevSeven = UserDefaults.standard.object(forKey: "prevSevenReset") as? Date
-        if let cur = usage.fiveHourResetDate, let prev = prevFive, cur > prev {
+        if isNewQuotaWindow(previous: prevFive, current: usage.fiveHourResetDate) {
             sendNotification(title: "Claude Code 5小时配额已重置", body: "新的 5 小时会话已开始。")
         }
-        if let cur = usage.sevenDayResetDate, let prev = prevSeven, cur > prev {
+        if isNewQuotaWindow(previous: prevSeven, current: usage.sevenDayResetDate) {
             sendNotification(title: "Claude Code 7天配额已重置", body: "新的 7 天周期已开始。")
         }
         if let cur = usage.fiveHourResetDate { UserDefaults.standard.set(cur, forKey: "prevFiveReset") }

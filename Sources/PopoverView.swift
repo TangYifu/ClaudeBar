@@ -231,11 +231,13 @@ public struct PopoverView: View {
         if let d = delta, d < -0.5 {
             return BurnLine(text: "用量回落 \(String(format: "%.1f%%", d))", color: Color.green, icon: "arrow.down.right")
         }
-        guard let r = rate else { return nil }
+        // A non-nil rate always carries a delta, so the two are unwrapped together;
+        // the old fallback printed the rate twice in a row.
+        guard let r = rate, let d = delta else { return nil }
         if r == 0 {
             return BurnLine(text: "用量平稳 · 重置前够用", color: .secondary, icon: "equal.circle")
         }
-        let deltaStr = delta != nil ? String(format: "%+.1f%%", delta!) : String(format: "%.1f%%/h", r)
+        let deltaStr = String(format: "%+.1f%%", d)
         let rateStr = String(format: "%.1f%%/h", r)
         let now = Date()
         if let ex = exhaustion, let reset = resetDate {
